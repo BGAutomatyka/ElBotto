@@ -1,0 +1,49 @@
+{
+  "rules": [
+    {
+      "name": "Hack/Exploit panic cut",
+      "symbols": [
+        "BTCUSDT",
+        "ETHUSDT"
+      ],
+      "include_any": [
+        "hack",
+        "breach",
+        "exploit",
+        "bankruptcy",
+        "liquidation"
+      ],
+      "include_all": [],
+      "exclude_any": [
+        "rumor"
+      ],
+      "min_sent": -0.2,
+      "action": {
+        "risk_mult": 0.5,
+        "threshold_delta": 0.05,
+        "pause_sec": 120
+      },
+      "ttl_sec": 600
+    },
+    {
+      "name": "ETF approval boost",
+      "symbols": [
+        "BTCUSDT"
+      ],
+      "include_any": [
+        "etf approval",
+        "sec approves",
+        "spot etf"
+      ],
+      "include_all": [],
+      "exclude_any": [],
+      "min_sent": 0.0,
+      "action": {
+        "risk_mult": 1.2,
+        "maxpos_mult": 1.2,
+        "threshold_delta": -0.03
+      },
+      "ttl_sec": 1800
+    }
+  ]
+}

@@ -1,0 +1,41 @@
+Metadata-Version: 2.4
+Name: elbotto
+Version: 0.2.0
+Summary: Order-bookowy backtester korzystający z prawdziwych danych Binance
+Author: El Botto
+Requires-Python: >=3.9
+Description-Content-Type: text/markdown
+Provides-Extra: dev
+Requires-Dist: pytest>=7.0; extra == "dev"
+
+
+# ElBotto – Control Center (GUI)
+
+Bogate GUI do sterowania botem: analiza, backtest, batch sweep, trening, paper/live, presety, profile, log na żywo, aktualne metryki, eksport CSV.
+
+## Instalacja
+1. Umieść folder `elbotto_control_center` w głównym katalogu projektu (tam gdzie `.venv/`, `src/`, `data/`).
+2. Upewnij się, że masz `.venv` (możesz użyć wcześniej dostarczonego `setup_env.bat`).
+3. Uruchom:
+```
+run_gui.bat
+```
+(uruchamia `python gui_main.py` z Twojego `.venv`)
+
+## Funkcje
+- **Wspólne parametry**: dataset, symbols, threshold, windows, capital, max-position, fee, spread-max, TP/SL, risk-per-trade, extra args.
+- **Presety**: Conservative / Default / Aggressive.
+- **Profile**: zapis i wczytywanie zestawów parametrów (JSON w `results/gui_profiles.json`).
+- **Zakładki**:
+  - Analysis – wskazujesz skrypt (domyślnie `run_quickstart_tuned.py`).
+  - Backtest – wskazujesz skrypt backtestu (`src\elbotto\backtest\backtest.py`).
+  - Batch Sweep – pętla po threshold (start/stop/step).
+  - Training – skrypt trenowania (`src\elbotto\ml\train.py`) + `epochs/lr/val`.
+  - Paper/Live – wybór środowiska, skrypty bota, API keys (przekazywane przez env vars).
+- **Log na żywo** + auto-zapis: `results/log_run_*.txt`.
+- **Aktualne wartości**: live parsowanie outputu i wyświetlanie metryk + tabeli cech (ΔPnL).
+- **Eksport metryk**: `results/metrics_*.csv`.
+
+## Uwaga
+GUI nie wymusza konkretnej listy argumentów – dodaj własne w polu "Extra args". Pamiętaj, że **Windows używa formatu** `--param wartość`, nie `--param=wartość`.
+

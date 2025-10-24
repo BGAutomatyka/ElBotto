@@ -1,0 +1,5 @@
+In your `elbotto_gui/app.py` add:
+    from elbotto_gui.tabs.selftest_tab import SelfTestTab
+
+Then add the tab to the Notebook, e.g. after other tabs:
+    self.nb.add(SelfTestTab(self.nb), text="Self-Test")
