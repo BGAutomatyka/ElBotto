@@ -1,0 +1,27 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "elbotto"
+version = "0.4.0"
+description = "Order-bookowy backtester korzystający z prawdziwych danych Binance"
+authors = [{name = "El Botto"}]
+readme = "README.md"
+requires-python = ">=3.9"
+dependencies = []
+
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0",
+]
+
+[project.scripts]
+elbotto = "elbotto.cli:run_cli"
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]
