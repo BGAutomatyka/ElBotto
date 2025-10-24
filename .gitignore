@@ -1,0 +1,26 @@
+# Python cache / build
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.egg-info/
+*.egg
+build/
+dist/
+
+# Virtualenv
+.venv/
+venv/
+
+# IDE / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+*.log
+
+# Nasz projekt – wyniki i dane tymczasowe
+results/**/*.csv
+results/**/*.json
+data/live/**
+logs/**
