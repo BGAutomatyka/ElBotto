@@ -52,22 +52,26 @@ src/elbotto/
    scenario = bootstrap_scenarios(next(iter(datasets.values())), steps=8, seed=42)
    ```
 
-4. Wygeneruj HTML panelu:
+4. Wygeneruj HTML panelu wraz z możliwością sterowania bez CLI:
 
-   ```python
-   from elbotto import DashboardApp, StrategyConfig
-   config = StrategyConfig()
-   app = DashboardApp(config, reports)
-   html = app.render()
-   ```
+```python
+from elbotto import DashboardApp, StrategyConfig
+config = StrategyConfig()
+app = DashboardApp.from_dataset(config, "data/binance_order_book_small.csv")
+# ręczna zmiana parametrów (np. próg decyzyjny i maksymalny rozmiar pozycji)
+app.manual_update(decision_threshold=0.6, max_position=0.9)
+# automatyczna kalibracja jednym wywołaniem
+app.auto_optimize()
+html = app.render()
+```
 
-5. Uruchom szybki start z linii poleceń i zobacz podsumowanie wskaźników:
+5. (opcjonalnie) Uruchom szybki start z linii poleceń i zobacz podsumowanie wskaźników:
 
    ```bash
    python -m elbotto data/binance_order_book_small.csv
    ```
 
-   Polecenie wypisze liczbę transakcji, końcowy kapitał oraz najważniejsze cechy, które zwiększały i zmniejszały PnL.
+   Polecenie wypisze liczbę transakcji, końcowy kapitał oraz najważniejsze cechy, które zwiększały i zmniejszały PnL. Te same informacje są widoczne w panelu HTML – dzięki metodom `manual_update` oraz `auto_optimize` nie ma potrzeby korzystać z CLI podczas codziennej pracy.
 
 ## Jak pobrać większy zestaw danych z Binance
 

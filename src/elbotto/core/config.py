@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Iterable, List
 
 
@@ -59,3 +59,15 @@ class StrategyConfig:
             raise ValueError("okna oceny muszą być dodatnie")
         self.evaluation_windows = tuple(sorted(set(windows)))
         self.risk_limits.validate()
+
+    def clone_with(self, **updates: float) -> "StrategyConfig":
+        """Zwraca nową konfigurację z nadpisanymi parametrami."""
+
+        risk_updates = {key.split("risk.", 1)[1]: value for key, value in updates.items() if key.startswith("risk.")}
+        regular_updates = {key: value for key, value in updates.items() if not key.startswith("risk.")}
+        config = replace(self, **regular_updates) if regular_updates else replace(self)
+        if risk_updates:
+            new_limits = replace(config.risk_limits, **risk_updates)
+            new_limits.validate()
+            config = replace(config, risk_limits=new_limits)
+        return config

@@ -12,9 +12,11 @@ from elbotto import (
     DashboardApp,
     StrategyConfig,
     analyse_dependencies,
+    auto_calibrate,
     bootstrap_scenarios,
     evaluate_feature_impacts,
     load_order_book_csv,
+    review_trades,
     run_quickstart,
 )
 from scripts.package_release import create_install_bundle
@@ -46,20 +48,22 @@ def test_dependencies_and_bootstrap():
 
 
 def test_dashboard_app():
-    datasets = load_order_book_csv(DATA_PATH)
-    reports = Backtester().run(datasets)
-    app = DashboardApp(StrategyConfig(), reports)
+    app = DashboardApp.from_dataset(StrategyConfig(), DATA_PATH)
     html = app.render()
     assert "ElBotto" in html
-    updated = app.update_threshold(0.6)
-    assert pytest.approx(updated) == 0.6
-    trades = app.list_trades()
+    trades = app.trade_table()
     assert isinstance(trades, list)
+    if trades:
+        assert "notional_usd" in trades[0]
+    config = app.manual_update(decision_threshold=0.6, max_position=0.9)
+    assert pytest.approx(config.decision_threshold) == 0.6
+    auto_config = app.auto_optimize()
+    assert 0.5 < auto_config.decision_threshold < 0.9
 
 
 def test_feature_impact_report_and_quickstart():
     datasets = load_order_book_csv(DATA_PATH)
-    reports, impacts = run_quickstart(DATA_PATH)
+    reports, impacts = run_quickstart(DATA_PATH, StrategyConfig())
     assert reports
     assert impacts.aggregated
     loss = impacts.loss_drivers(top_n=2)
@@ -68,6 +72,10 @@ def test_feature_impact_report_and_quickstart():
     assert isinstance(gain, list)
     effects = evaluate_feature_impacts(datasets, reports)
     assert effects.aggregated
+    review = review_trades(reports, impacts)
+    assert review.total_trades >= 0
+    autotune = auto_calibrate(datasets, StrategyConfig())
+    assert autotune.best_config.decision_threshold > 0.5
 
 
 def test_package_release():
