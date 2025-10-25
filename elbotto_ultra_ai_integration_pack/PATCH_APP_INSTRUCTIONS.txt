@@ -1,0 +1,11 @@
+Open file: elbotto_gui/app.py and add these lines where other tabs are imported:
+    from elbotto_gui.tabs.wfv_tab import WFVTab
+    from elbotto_gui.tabs.heatmap_tab import HeatmapTab
+    from elbotto_gui.tabs.adapter_tab import AdapterPlusTab
+    from elbotto_gui.tabs.rules_editor_tab import RulesEditorTab
+
+Then, after existing tabs are added to the Notebook (self.nb):
+    self.nb.add(WFVTab(self.nb), text="WFV")
+    self.nb.add(HeatmapTab(self.nb), text="Heatmap")
+    self.nb.add(AdapterPlusTab(self.nb), text="Adapter+")
+    self.nb.add(RulesEditorTab(self.nb), text="Rules")
