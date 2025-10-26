@@ -1,0 +1,25 @@
+name: web-game-ci
+
+on:
+  push:
+    branches: [ 'feat/web-game-alpha' ]
+    paths: [ 'apps/web-game/**' ]
+  pull_request:
+    branches: [ 'main' ]
+    paths: [ 'apps/web-game/**' ]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+      - name: Install deps
+        working-directory: apps/web-game
+        run: npm ci || npm i
+      - name: Build
+        working-directory: apps/web-game
+        run: npm run build
