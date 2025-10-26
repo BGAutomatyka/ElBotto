@@ -3,75 +3,204 @@
 <head>
 <meta charset="utf-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1"/>
-<title>Alpha Bot — no-build demo</title>
-<style>body{font-family:system-ui,-apple-system,'Segoe UI',Roboto,Arial;margin:16px;background:#f7f8fb;} .card{border:1px solid #e5e7eb;border-radius:14px;padding:16px;background:#fff;box-shadow:0 1px 4px rgba(0,0,0,.05);} .grid{display:grid;gap:12px;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));} .muted{color:#6b7280;font-size:12px}</style>
+<title>Alpha Bot — playground</title>
+<style>
+  :root{ --bg:#f6f7fb; --card:#fff; --muted:#6b7280; --ink:#0f172a; --accent:#3b82f6; --green:#16a34a; --red:#ef4444;}
+  *{box-sizing:border-box} body{font-family:system-ui,-apple-system,'Segoe UI',Roboto,Arial;margin:0;background:var(--bg);color:var(--ink);}
+  header{display:flex;align-items:center;justify-content:space-between;padding:16px 20px;position:sticky;top:0;background:linear-gradient(#fff,#fff8);backdrop-filter:saturate(1.2) blur(6px);border-bottom:1px solid #e5e7eb;z-index:10}
+  h1{font-size:20px;margin:0} .muted{color:var(--muted);font-size:12px} .badge{background:#e5edff;color:#1d4ed8;border-radius:999px;padding:2px 8px;font-size:12px;margin-left:8px}
+  main{padding:16px;max-width:1200px;margin:0 auto;}
+  .grid{display:grid;gap:12px;grid-template-columns:repeat(12,1fr);} .card{background:var(--card);border:1px solid #e5e7eb;border-radius:14px;box-shadow:0 1px 4px rgba(0,0,0,.04);} .card .h{padding:10px 12px;border-bottom:1px solid #eef0f5;font-weight:600;} .card .c{padding:12px;}
+  .kpi{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;} .kpi .tile{border-radius:14px;border:1px solid #e5e7eb;background:#fff;padding:12px;} .kpi .label{font-size:12px;color:var(--muted)} .kpi .val{font-size:24px;font-weight:700;margin-top:6px}
+  .controls label{font-size:12px;color:var(--muted);display:flex;justify-content:space-between} .controls input[type=range]{width:100%} .row{display:grid;grid-template-columns:repeat(2,1fr);gap:10px}
+  .avatar{display:flex;gap:12px;align-items:center} .avatar .pic{width:64px;height:64px;border-radius:50%;background:linear-gradient(135deg,#dbeafe,#f3e8ff);display:grid;place-items:center;border:1px solid #e5e7eb} .lvl{font-size:12px;color:var(--muted)} .xpbar{height:8px;background:#eef2ff;border-radius:999px;overflow:hidden} .xpbar>div{height:100%;background:linear-gradient(90deg,#22c55e,#3b82f6)}
+  .chart-wrap{height:340px} svg{display:block;width:100%;height:100%} .legend{display:flex;gap:10px;flex-wrap:wrap;font-size:12px;color:var(--muted)} .leg{display:flex;align-items:center;gap:6px} .dot{width:10px;height:10px;border-radius:50%} .d-price{background:#0ea5e9}.d-sma{background:#10b981}.d-ema{background:#ef4444}.d-bb{background:#a855f7}
+  .log{max-height:260px;overflow:auto} .log li{font-size:13px;margin:2px 0} .pos-long{color:var(--green)} .pos-short{color:var(--red)}
+  .toggles{display:flex;gap:12px;flex-wrap:wrap;margin:6px 0 10px} .toggles label{font-size:12px;color:var(--muted);display:flex;align-items:center;gap:6px}
+</style>
 </head>
 <body>
-  <h1 style="margin:0">Alpha Bot (Pages no-build)</h1>
-  <p class="muted">Działa bez Node/Vite — czysty CDN. To wersja awaryjna, by od razu zobaczyć stronę na GitHub Pages.</p>
-  <div id="root"></div>
-  <script type="module">
-    import React from 'https://esm.sh/react@18.3.1'
-    import { createRoot } from 'https://esm.sh/react-dom@18.3.1/client'
+<header>
+  <div>
+    <h1>Alpha Bot — playground <span class="badge">alpha</span></h1>
+    <div class="muted">Symulacja mean-reversion + SL/TP/trailing • bogaty HUD • wskaźniki • avatar bota</div>
+  </div>
+  <div class="muted" id="clock"></div>
+</header>
+<main>
+  <section class="kpi">
+    <div class="tile"><div class="label">Cena</div><div class="val" id="kpi-price">—</div></div>
+    <div class="tile"><div class="label">Pozycja</div><div class="val" id="kpi-pos">FLAT</div></div>
+    <div class="tile"><div class="label">Equity</div><div class="val" id="kpi-eq">—</div></div>
+    <div class="tile"><div class="label">Winrate</div><div class="val" id="kpi-wr">—</div></div>
+  </section>
 
-    function useAlphaSim(){
-      const [price,setPrice]=React.useState(100)
-      const [equity,setEquity]=React.useState(10000)
-      const [pos,setPos]=React.useState(0)
-      const [log,setLog]=React.useState([])
-      const mu=100, vol=0.6, thr=1.2, sl=2, tp=2, trailing=1
-      const best=React.useRef(null)
-      React.useEffect(()=>{
-        const id=setInterval(()=>{
-          const drift=(mu-price)*0.05
-          const shock=(Math.random()-0.5)*vol*2
-          const p=Math.max(0.1, price+drift+shock)
-          setPrice(p)
-          const z=p-mu
-          if(pos===0){
-            if(z>thr){ setPos(-1); setLog(l=>['SELL',...l]) }
-            if(z<-thr){ setPos( 1); setLog(l=>['BUY', ...l]) }
-            best.current=p
-          }else{
-            if(pos>0) best.current=Math.max(best.current??p,p)
-            if(pos<0) best.current=Math.min(best.current??p,p)
-            const trailHit = pos>0 ? (best.current-p)>=trailing : (p-best.current)>=trailing
-            const pnl=(p-price)*pos
-            if(Math.abs(z)<0.2 || pnl<=-sl || pnl>=tp || trailHit){
-              setEquity(e=>e+(p-price)*pos)
-              setPos(0)
-              setLog(l=>['FLAT',...l])
-              best.current=null
-            }
-          }
-        },300)
-        return ()=>clearInterval(id)
-      },[price,pos])
-      return {price,equity,pos,log}
-    }
+  <div class="grid" style="margin-top:12px">
+    <div class="card" style="grid-column:span 8">
+      <div class="h">Wykres</div>
+      <div class="c">
+        <div class="toggles">
+          <label><input type="checkbox" id="tg-sma" checked> SMA(50)</label>
+          <label><input type="checkbox" id="tg-ema" checked> EMA(21)</label>
+          <label><input type="checkbox" id="tg-bb" checked> Bollinger(60, 2.0)</label>
+          <label><input type="checkbox" id="tg-trades" checked> Zaznacz sygnały</label>
+        </div>
+        <div class="chart-wrap"><svg id="chart" viewBox="0 0 1000 340"></svg></div>
+        <div class="legend">
+          <div class="leg"><div class="dot d-price"></div>Price</div>
+          <div class="leg"><div class="dot d-sma"></div>SMA</div>
+          <div class="leg"><div class="dot d-ema"></div>EMA</div>
+          <div class="leg"><div class="dot d-bb"></div>Bollinger bands</div>
+        </div>
+      </div>
+    </div>
+    <div class="card" style="grid-column:span 4">
+      <div class="h">Avatar bota</div>
+      <div class="c">
+        <div class="avatar">
+          <div class="pic">
+            <svg width="40" height="40" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><rect x="3" y="8" width="18" height="10" rx="3" fill="#94a3b8"/><circle cx="9" cy="13" r="1.5" fill="#0ea5e9"/><circle cx="15" cy="13" r="1.5" fill="#0ea5e9"/><rect x="10.5" y="3" width="3" height="4" rx="1" fill="#94a3b8"/></svg>
+          </div>
+          <div>
+            <div style="font-weight:600">Alpha Mk.I <span class="muted" id="bot-tier">T1</span></div>
+            <div class="lvl">Poziom <span id="lvl">1</span> • XP <span id="xp">0</span>/<span id="xpmax">100</span></div>
+            <div class="xpbar" style="margin-top:6px"><div id="xpbar" style="width:0%"></div></div>
+          </div>
+        </div>
+        <div style="margin-top:12px" class="controls">
+          <div class="row">
+            <div><label>Z-window <span id="val-zw">60</span></label><input id="in-zw" type="range" min="20" max="200" value="60"></div>
+            <div><label>Z-entry <span id="val-ze">1.20</span></label><input id="in-ze" type="range" min="0.5" max="3" step="0.05" value="1.2"></div>
+          </div>
+          <div class="row" style="margin-top:8px">
+            <div><label>BB window <span id="val-bbw">60</span></label><input id="in-bbw" type="range" min="20" max="200" value="60"></div>
+            <div><label>BB k <span id="val-bbk">2.0</span></label><input id="in-bbk" type="range" min="1" max="3.5" step="0.1" value="2.0"></div>
+          </div>
+          <div class="row" style="margin-top:8px">
+            <div><label>SL % <span id="val-sl">0.60</span></label><input id="in-sl" type="range" min="0.10" max="3.00" step="0.05" value="0.60"></div>
+            <div><label>TP % <span id="val-tp">0.80</span></label><input id="in-tp" type="range" min="0.10" max="3.00" step="0.05" value="0.80"></div>
+          </div>
+          <div class="row" style="margin-top:8px">
+            <div><label>Trailing % <span id="val-tr">0.40</span></label><input id="in-tr" type="range" min="0.10" max="2.00" step="0.05" value="0.40"></div>
+            <div><label>Kwota (USD) <span id="val-usd">25</span></label><input id="in-usd" type="range" min="5" max="250" step="5" value="25"></div>
+          </div>
+        </div>
+      </div>
+    </div>
 
-    function Card({title,children}){
-      return React.createElement('div',{className:'card'},[
-        React.createElement('div',{className:'muted'},title),
-        React.createElement('div',{style:{fontSize:'28px',fontWeight:600,marginTop:8}},children)
-      ])
-    }
+    <div class="card" style="grid-column:span 8">
+      <div class="h">Wskaźniki</div>
+      <div class="c">
+        <div class="kpi">
+          <div class="tile"><div class="label">RSI(14)</div><div class="val" id="ind-rsi">—</div></div>
+          <div class="tile"><div class="label">MACD(12,26,9)</div><div class="val"><span id="ind-macd">—</span> / <span id="ind-sig">—</span></div></div>
+          <div class="tile"><div class="label">Z-score(<span id="lbl-zw2">60</span>)</div><div class="val" id="ind-z">—</div></div>
+          <div class="tile"><div class="label">BB width</div><div class="val" id="ind-bbw">—</div></div>
+        </div>
+      </div>
+    </div>
+    <div class="card" style="grid-column:span 4">
+      <div class="h">Log / Zdarzenia</div>
+      <div class="c log"><ul id="log" style="margin:0;padding-left:18px"></ul></div>
+    </div>
+  </div>
+</main>
 
-    function App(){
-      const {price,equity,pos,log}=useAlphaSim()
-      const posTxt=pos===1?'LONG':pos===-1?'SHORT':'FLAT'
-      return React.createElement(React.Fragment,null,[
-        React.createElement('div',{className:'grid',style:{marginTop:16}},[
-          React.createElement(Card,{title:'Cena'}, price.toFixed(2)),
-          React.createElement(Card,{title:'Pozycja'}, posTxt),
-          React.createElement(Card,{title:'Equity'}, equity.toFixed(2)),
-        ]),
-        React.createElement('h3',{style:{marginTop:16}},'Log'),
-        React.createElement('ul',null, log.slice(0,30).map((e,i)=> React.createElement('li',{key:i}, e)))
-      ])
-    }
+<script>
+(function(){
+  const svg = document.getElementById('chart');
+  const kpiP = document.getElementById('kpi-price');
+  const kpiPos = document.getElementById('kpi-pos');
+  const kpiEq = document.getElementById('kpi-eq');
+  const kpiWr = document.getElementById('kpi-wr');
+  const logEl = document.getElementById('log');
+  const clock = document.getElementById('clock');
 
-    createRoot(document.getElementById('root')).render(React.createElement(App))
-  </script>
+  const tgSMA = document.getElementById('tg-sma');
+  const tgEMA = document.getElementById('tg-ema');
+  const tgBB  = document.getElementById('tg-bb');
+  const tgTrades = document.getElementById('tg-trades');
+
+  const inZW = document.getElementById('in-zw'); const valZW = document.getElementById('val-zw'); const lblZW2 = document.getElementById('lbl-zw2');
+  const inZE = document.getElementById('in-ze'); const valZE = document.getElementById('val-ze');
+  const inBBW= document.getElementById('in-bbw'); const valBBW = document.getElementById('val-bbw');
+  const inBBK= document.getElementById('in-bbk'); const valBBK = document.getElementById('val-bbk');
+  const inSL = document.getElementById('in-sl'); const valSL = document.getElementById('val-sl');
+  const inTP = document.getElementById('in-tp'); const valTP = document.getElementById('val-tp');
+  const inTR = document.getElementById('in-tr'); const valTR = document.getElementById('val-tr');
+  const inUSD= document.getElementById('in-usd'); const valUSD= document.getElementById('val-usd');
+
+  const indRSI = document.getElementById('ind-rsi');
+  const indMACD= document.getElementById('ind-macd');
+  const indSIG = document.getElementById('ind-sig');
+  const indZ   = document.getElementById('ind-z');
+  const indBBW = document.getElementById('ind-bbw');
+
+  const lvlEl = document.getElementById('lvl'); const xpEl = document.getElementById('xp'); const xpMaxEl = document.getElementById('xpmax'); const xpBar = document.getElementById('xpbar');
+
+  function fmt(n, d=2){ return (Math.round(n*10**d)/10**d).toFixed(d) }
+  function nowHHMM(){ const d=new Date(); return d.toLocaleTimeString() }
+
+  let price=100; let equity=10000; let pos=0; let wins=0; let losses=0;
+  let lastEntry=0; let best=null;
+  let xp=0; let lvl=1; let xpMax=100;
+  const series=[]; const trades=[]; // {i,type:'buy'|'sell'|'flat',p}
+
+  // indicators helpers
+  function sma(arr,n){ if(arr.length<n) return null; const w=arr.slice(-n); return w.reduce((a,b)=>a+b,0)/n }
+  function emaSeries(arr,n){ const k=2/(n+1); const out=[]; let e=arr[0]; for(let i=0;i<arr.length;i++){ e = i? (arr[i]*k + e*(1-k)) : arr[0]; out.push(e) } return out }
+  function stddev(arr){ const m=arr.reduce((a,b)=>a+b,0)/arr.length; const v=arr.reduce((a,b)=>a+(b-m)*(b-m),0)/arr.length; return Math.sqrt(v) }
+  function rsi(arr, n=14){ if(arr.length<n+1) return null; let gains=0,losses=0; for(let i=arr.length-n;i<arr.length;i++){ const diff=arr[i]-arr[i-1]; if(diff>0) gains+=diff; else losses-=diff } const rs = losses===0? 100 : gains/losses; return 100 - 100/(1+rs) }
+  function macd(arr){ if(arr.length<26) return {macd:null, signal:null, hist:null}; const ema12=emaSeries(arr,12); const ema26=emaSeries(arr,26); const mac=ema12.map((v,i)=>v-(ema26[i]||v)); const sig=emaSeries(mac.slice(26-1),9); const pad = new Array(26-1).fill(null).concat(sig); const hist = mac.map((v,i)=> (pad[i]==null||v==null)? null : v-pad[i]); return { macd: mac.at(-1), signal: pad.at(-1), hist: hist.at(-1)} }
+  function bbands(arr, n=60, k=2){ if(arr.length<n) return null; const w=arr.slice(-n); const m=sma(arr,n); const sd=stddev(w); return {lower:m-k*sd, mid:m, upper:m+k*sd, width: k*sd*2} }
+  function zscore(arr,n=60){ if(arr.length<n) return null; const w=arr.slice(-n); const m=w.reduce((a,b)=>a+b,0)/n; const sd=stddev(w)||1e-9; return (w[w.length-1]-m)/sd }
+
+  function pushLog(text){ const li=document.createElement('li'); li.textContent=text; logEl.prepend(li); const max=200; while(logEl.children.length>max) logEl.removeChild(logEl.lastChild) }
+
+  function levelUpIfNeeded(){ while(xp>=xpMax){ xp-=xpMax; lvl++; xpMax=Math.round(xpMax*1.25); pushLog('Level up! Now '+lvl); } xpEl.textContent=xp; xpMaxEl.textContent=xpMax; lvlEl.textContent=lvl; xpBar.style.width=(100*xp/xpMax)+'%'; }
+
+  function renderChart(){ const w=1000,h=340; const N=series.length; if(N<2){ svg.innerHTML=''; return } const min=Math.min(...series); const max=Math.max(...series); const pad=(max-min)*0.1||1; const yMin=min-pad, yMax=max+pad; const xStep=w/(N-1); function Y(v){ return h - ( (v - yMin) / (yMax - yMin) ) * h }
+    function pathOf(arr){ let d='M 0 '+Y(arr[0]); for(let i=1;i<N;i++){ d+=' L '+(i*xStep)+' '+Y(arr[i]) } return d }
+    const parts=[]; // grid
+    parts.push('<rect x="0" y="0" width="'+w+'" height="'+h+'" fill="#fff"/>');
+    // price
+    parts.push('<path d="'+pathOf(series)+'" stroke="#0ea5e9" stroke-width="2" fill="none"/>');
+    // SMA
+    if(tgSMA.checked){ const n=50; if(series.length>=n){ const s=[]; for(let i=0;i<N;i++){ const start=Math.max(0,i-n+1); const slice=series.slice(start,i+1); s.push(slice.reduce((a,b)=>a+b,0)/slice.length) } parts.push('<path d="'+pathOf(s)+'" stroke="#10b981" stroke-width="1.5" fill="none"/>') } }
+    // EMA
+    if(tgEMA.checked){ const e=emaSeries(series,21); parts.push('<path d="'+pathOf(e)+'" stroke="#ef4444" stroke-width="1.2" fill="none"/>') }
+    // Bollinger
+    if(tgBB.checked){ const n=Number(inBBW.value), k=Number(inBBK.value); if(series.length>=n){ const s=[]; const u=[]; for(let i=0;i<N;i++){ const start=Math.max(0,i-n+1); const slice=series.slice(start,i+1); const m=slice.reduce((a,b)=>a+b,0)/slice.length; const sd=stddev(slice); s.push(m-k*sd); u.push(m+k*sd) } parts.push('<path d="'+pathOf(s)+'" stroke="#a855f7" stroke-width="1" fill="none" opacity="0.8"/>'); parts.push('<path d="'+pathOf(u)+'" stroke="#a855f7" stroke-width="1" fill="none" opacity="0.8"/>') } }
+    // Trades
+    if(tgTrades.checked){ trades.forEach(t=>{ const x=t.i*xStep; const y=Y(t.p); const col=t.type==='buy'? '#16a34a' : t.type==='sell'? '#ef4444' : '#64748b'; parts.push('<circle cx="'+x+'" cy="'+y+'" r="3.5" fill="'+col+'"/>') }) }
+    svg.innerHTML = parts.join('');
+  }
+
+  function tick(){ // price step
+    const drift=(100-price)*0.05; const shock=(Math.random()-0.5)*0.6*2; price=Math.max(0.1, price+drift+shock); series.push(price); if(series.length>600) series.shift();
+    // indicators
+    const z = zscore(series, Number(inZW.value)); const bb = bbands(series, Number(inBBW.value), Number(inBBK.value)); const r = rsi(series,14); const m = macd(series);
+    // signals
+    const last=price; const ze=Number(inZE.value); const sl=Number(inSL.value)/100; const tp=Number(inTP.value)/100; const tr=Number(inTR.value)/100;
+    if(pos===0){ if(z!==null && bb){ if(last<bb.lower && z<=-ze){ pos=1; lastEntry=last; best=last; trades.push({i:series.length-1,type:'buy',p:last}); pushLog('BUY @ '+fmt(last)); xp+=5 } if(last>bb.upper && z>=ze){ pos=-1; lastEntry=last; best=last; trades.push({i:series.length-1,type:'sell',p:last}); pushLog('SELL @ '+fmt(last)); xp+=5 } } }
+    else { if(pos>0){ best=Math.max(best,last); const trailHit = last<=best*(1-tr); const pnl=(last-lastEntry)/lastEntry; if(trailHit || pnl<=-sl || pnl>=tp || (z&&Math.abs(z)<0.2)){ equity+= (last-lastEntry)*(25/lastEntry); pos=0; trades.push({i:series.length-1,type:'flat',p:last}); pushLog('FLAT (pnl '+fmt(pnl*100,2)+'%)'); pnl>=0? wins++:losses++; xp+= pnl>=0? 10:3 } } else { best=Math.min(best,last); const trailHit = last>=best*(1+tr); const pnl=(lastEntry-last)/lastEntry; if(trailHit || pnl<=-sl || pnl>=tp || (z&&Math.abs(z)<0.2)){ equity+= (lastEntry-last)*(25/lastEntry); pos=0; trades.push({i:series.length-1,type:'flat',p:last}); pushLog('FLAT (pnl '+fmt(pnl*100,2)+'%)'); pnl>=0? wins++:losses++; xp+= pnl>=0? 10:3 } } }
+    // KPIs
+    kpiP.textContent = fmt(price,2); kpiPos.textContent = pos>0? 'LONG' : pos<0? 'SHORT' : 'FLAT'; kpiPos.className = pos>0? 'val pos-long' : pos<0? 'val pos-short' : 'val'; kpiEq.textContent = fmt(equity,2); const wr=(wins+losses)? (wins/(wins+losses))*100 : 0; kpiWr.textContent = fmt(wr,1)+'%';
+    // Indicators panel
+    indRSI.textContent = r==null? '—' : fmt(r,1); indMACD.textContent = m.macd==null? '—' : fmt(m.macd,3); indSIG.textContent = m.signal==null? '—' : fmt(m.signal,3); indZ.textContent = z==null? '—' : fmt(z,2); indBBW.textContent = bb? fmt(bb.width,2) : '—';
+    // Avatar XP/level
+    levelUpIfNeeded();
+    // Chart
+    renderChart();
+  }
+
+  // init UI
+  function bindRange(input, label, fmtfn=(v)=>v){ const on=()=>{ label.textContent = fmtfn(Number(input.value)) }; input.addEventListener('input', on); on() }
+  bindRange(inZW,valZW,(v)=>v); bindRange(inZE,valZE,(v)=>v.toFixed(2)); lblZW2.textContent=inZW.value; inZW.addEventListener('input',()=> lblZW2.textContent=inZW.value);
+  bindRange(inBBW,valBBW,(v)=>v); bindRange(inBBK,valBBK,(v)=>v.toFixed(1)); bindRange(inSL,valSL,(v)=>v.toFixed(2)); bindRange(inTP,valTP,(v)=>v.toFixed(2)); bindRange(inTR,valTR,(v)=>v.toFixed(2)); bindRange(inUSD,valUSD,(v)=>v);
+  setInterval(()=> clock.textContent = nowHHMM(), 1000);
+  setInterval(tick, 300);
+})();
+</script>
 </body>
 </html>
