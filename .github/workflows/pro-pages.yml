@@ -1,0 +1,50 @@
+name: Build & Deploy PRO
+
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - 'apps/web-pro/**'
+      - '.github/workflows/pro-pages.yml'
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: 'pages'
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: apps/web-pro/package-lock.json
+      - name: Install
+        run: |
+          cd apps/web-pro
+          npm ci
+      - name: Build
+        run: |
+          cd apps/web-pro
+          npm run build
+      - name: Upload artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: 'apps/web-pro/dist'
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4
