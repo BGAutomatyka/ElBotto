@@ -1,0 +1,83 @@
+<!doctype html><html lang="pl"><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1"><title>ElBotto — Charts Lite</title>
+<style>
+  body{margin:0;font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial;background:#f6f7fb;color:#0f172a}
+  header{display:flex;justify-content:space-between;align-items:center;padding:12px 16px;background:#fff;border-bottom:1px solid #e5e7eb;position:sticky;top:0}
+  .row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+  select,button{border:1px solid #d1d5db;border-radius:8px;padding:6px 8px;background:#fff}
+  .wrap{max-width:1100px;margin:0 auto;padding:12px}
+  .card{background:#fff;border:1px solid #e5e7eb;border-radius:14px;padding:12px}
+  #chart{width:100%;height:520px}
+  .muted{color:#6b7280;font-size:12px}
+</style>
+<header>
+  <div><h1 style="margin:0;font-size:20px">ElBotto — Charts Lite</h1>
+    <div class="muted">Czysty SVG • Binance REST + WebSocket • bez CDN</div></div>
+  <div class="row">
+    <label>Symbol
+      <select id="symbol"><option>BTCUSDT</option><option>ETHUSDT</option><option>BNBUSDT</option><option>SOLUSDT</option></select>
+    </label>
+    <label>Interwał
+      <select id="interval"><option>1m</option><option>5m</option><option>15m</option><option>1h</option></select>
+    </label>
+    <button id="reload">Przeładuj</button>
+    <span id="status" class="muted">● offline</span>
+  </div>
+</header>
+<div class="wrap"><div class="card">
+  <svg id="chart" viewBox="0 0 1000 520" preserveAspectRatio="none"></svg>
+</div></div>
+<script>
+(function(){
+  const svg=document.getElementById('chart'), symSel=document.getElementById('symbol'),
+        intSel=document.getElementById('interval'), btn=document.getElementById('reload'),
+        statusEl=document.getElementById('status');
+  let symbol=symSel.value, interval=intSel.value, ws=null, data=[];
+  function setStatus(ok,msg=''){ statusEl.textContent=(ok?'● connected':'● offline')+(msg?' — '+msg:''); statusEl.style.color=ok?'#16a34a':'#ef4444' }
+  function mapK(a){ return a.map(k=>({t:+k[0], o:+k[1], h:+k[2], l:+k[3], c:+k[4]})) }
+  function render(){
+    const W=1000,H=520,N=data.length; svg.innerHTML='';
+    if(N<2){ return }
+    // scale
+    const min=Math.min(...data.map(d=>d.l)), max=Math.max(...data.map(d=>d.h));
+    const pad=(max-min)*0.05||1, yMin=min-pad, yMax=max+pad, xStep=W/(N-1);
+    const Y=v=> H - ( (v - yMin)/(yMax - yMin) )*H;
+    // grid
+    svg.innerHTML += `<rect x="0" y="0" width="${W}" height="${H}" fill="#fff"/>`;
+    for(let i=1;i<6;i++){ const y=i*(H/6); svg.innerHTML+=`<line x1="0" y1="${y}" x2="${W}" y2="${y}" stroke="#eef0f5"/>` }
+    // candles
+    for(let i=0;i<N;i++){
+      const d=data[i], x=i*xStep, yO=Y(d.o), yC=Y(d.c), yH=Y(d.h), yL=Y(d.l);
+      const up=d.c>=d.o, col=up?'#10b981':'#ef4444';
+      const w=Math.max(1.5, xStep*0.6), x0=x-w/2, yB=Math.min(yO,yC), h=Math.max(1, Math.abs(yC-yO));
+      svg.innerHTML += `<line x1="${x}" y1="${yH}" x2="${x}" y2="${yL}" stroke="${col}" stroke-width="1"/>`;
+      svg.innerHTML += `<rect x="${x0}" y="${yB}" width="${w}" height="${h}" fill="${col}" opacity="0.8"/>`;
+    }
+  }
+  async function seed(){
+    const url=`https://api.binance.com/api/v3/klines?symbol=${symbol}&interval=${interval}&limit=300`;
+    const res=await fetch(url); const arr=await res.json();
+    if(!Array.isArray(arr)) throw new Error('REST != array');
+    data=mapK(arr); render();
+  }
+  function openWS(){
+    try{ ws && ws.close() }catch{}; const stream=`${symbol.toLowerCase()}@kline_${interval}`;
+    ws=new WebSocket(`wss://stream.binance.com:9443/ws/${stream}`);
+    ws.onopen=()=>setStatus(true,`${symbol}/${interval}`);
+    ws.onmessage=ev=>{ try{ const k=JSON.parse(ev.data).k;
+      const t=k.t, o=+k.o, h=+k.h, l=+k.l, c=+k.c;
+      const last=data[data.length-1];
+      const obj={t:o? t : last?.t, o,h,l,c};
+      if(last && last.t===t) data[data.length-1]=obj; else data.push(obj);
+      if(data.length>1500) data.shift();
+      render();
+    }catch{} };
+    ws.onclose =()=>{ setStatus(false); setTimeout(openWS,1500) };
+    ws.onerror =()=> setStatus(false,'error');
+  }
+  async function reload(){ setStatus(false,'seed'); await seed().catch(()=>{}); openWS() }
+  btn.onclick=reload; symSel.onchange=()=>{ symbol=symSel.value; reload() }; intSel.onchange=()=>{ interval=intSel.value; reload() };
+  reload();
+})();
+</script>
+</html>
