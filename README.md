@@ -1,7 +1,7 @@
 # ElBotto
 
 **LIVE (fallback, no-build):** https://bgautomatyka.github.io/ElBotto/
-
+...
 **Binance live demo:** https://bgautomatyka.github.io/ElBotto/binance.html
 
 ## PRO app (React + Vite)
