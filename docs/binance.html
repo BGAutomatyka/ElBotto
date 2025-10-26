@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang='pl'>
+<head>
+<meta charset='utf-8'/>
+<meta name='viewport' content='width=device-width, initial-scale=1'/>
+<title>ElBotto — Binance live</title>
+<style>body{margin:0;font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial;background:#f6f7fb;color:#0f172a} header{display:flex;justify-content:space-between;align-items:center;padding:12px 16px;background:#fff;border-bottom:1px solid #e5e7eb;position:sticky;top:0} .wrap{max-width:1100px;margin:0 auto;padding:12px} .card{background:#fff;border:1px solid #e5e7eb;border-radius:14px;padding:12px} .muted{color:#6b7280;font-size:12px} .good{color:#16a34a} .bad{color:#ef4444}</style>
+</head>
+<body>
+<header>
+  <div><h1 style='margin:0;font-size:20px'>ElBotto — Binance live</h1><div class='muted'>WebSocket stream @trade</div></div>
+  <div style='display:flex;gap:8px;align-items:center'>
+    <select id='symbol'><option>BTCUSDT</option><option>ETHUSDT</option><option>BNBUSDT</option><option>SOLUSDT</option></select>
+    <span id='status' class='muted'>● offline</span>
+  </div>
+</header>
+<div class='wrap'>
+  <div class='card'>
+    <div class='muted'>Cena (<span id='sym'>BTCUSDT</span>)</div>
+    <div style='font-size:32px;font-weight:700' id='price'>—</div>
+    <div style='height:320px;margin-top:8px'><svg id='chart' viewBox='0 0 1000 320'></svg></div>
+  </div>
+</div>
+<script>
+(function(){
+  const priceEl=document.getElementById('price'); const statusEl=document.getElementById('status'); const symEl=document.getElementById('sym'); const symSel=document.getElementById('symbol'); const svg=document.getElementById('chart');
+  const series=[]; let ws=null; let symbol='BTCUSDT';
+  function setStatus(ok,msg=''){ statusEl.textContent=(ok?'● connected':'● offline')+(msg?' — '+msg:''); statusEl.className= ok? 'good' : 'bad'; }
+  function render(){ const w=1000,h=320; const N=series.length; if(N<2){ svg.innerHTML=''; return } const min=Math.min(...series),max=Math.max(...series),pad=(max-min)*0.1||1,yMin=min-pad,yMax=max+pad; const xStep=w/(N-1); const Y=v=> h-((v-yMin)/(yMax-yMin))*h; let d='M 0 '+Y(series[0]); for(let i=1;i<N;i++){ d+=' L '+(i*xStep)+' '+Y(series[i]); } svg.innerHTML='<rect x='+'0'+' y='+'0'+' width='+w+' height='+h+' fill='+'#fff'+'/><path d='+d+' stroke='+'#0ea5e9'+' stroke-width='+'2'+' fill='+'none'+'/>'; }
+  function seed(){ const url='https://api.binance.com/api/v3/klines?symbol='+symbol+'&interval=1m&limit=150'; return fetch(url).then(r=>r.json()).then(arr=>{ if(!Array.isArray(arr)) return; series.length=0; arr.forEach(k=> series.push(Number(k[4])) ); render(); }).catch(()=>{}); }
+  function connect(){ try{ if(ws) ws.close(); }catch{} const stream=symbol.toLowerCase()+'@trade'; ws = new WebSocket('wss://stream.binance.com:9443/ws/'+stream); ws.onopen=()=> setStatus(true,symbol); ws.onmessage=(ev)=>{ try{ const d=JSON.parse(ev.data); const p=Number(d.p||d.c||d.k?.c); if(!isFinite(p)) return; priceEl.textContent=p.toFixed(2); series.push(p); if(series.length>1000) series.shift(); render(); }catch{} }; ws.onclose=()=>{ setStatus(false); setTimeout(connect,1500); }; ws.onerror=()=> setStatus(false,'error'); }
+  symSel.addEventListener('change', async ()=>{ symbol=symSel.value; symEl.textContent=symbol; await seed(); connect(); });
+  (async function init(){ await seed(); connect(); })();
+})();
+</script>
+</body>
+</html>
