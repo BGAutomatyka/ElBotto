@@ -6,22 +6,26 @@
 <title>ElBotto — Charts (Binance)</title>
 <style>
   body{margin:0;font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial;background:#f6f7fb;color:#0f172a}
-  header{display:flex;justify-content:space-between;align-items:center;padding:12px 16px;background:#fff;border-bottom:1px solid #e5e7eb;position:sticky;top:0}
+  header{display:flex;justify-content:space-between;align-items:center;padding:12px 16px;background:#fff;border-bottom:1px solid #e5e7eb;position:sticky;top:0;z-index:10}
   .wrap{max-width:1100px;margin:0 auto;padding:12px}
   .card{background:#fff;border:1px solid #e5e7eb;border-radius:14px;padding:12px}
   .muted{color:#6b7280;font-size:12px}
   select,button{border:1px solid #d1d5db;border-radius:8px;padding:6px 8px;background:#fff}
   .row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
   #chart{height:520px}
+  #msg{margin-top:8px;font-size:12px;color:#6b7280}
 </style>
 </head>
 <body>
 <header>
   <div>
     <h1 style="margin:0;font-size:20px">ElBotto — Charts</h1>
-    <div class="muted">Binance Candles + SMA/EMA (live)</div>
+    <div class="muted">Candles + SMA/EMA (REST + WebSocket, z fallbackiem)</div>
   </div>
   <div class="row">
+    <label>Tryb
+      <select id="mode"><option value="binance">Binance</option><option value="sim">Symulacja</option></select>
+    </label>
     <label>Symbol
       <select id="symbol">
         <option>BTCUSDT</option><option>ETHUSDT</option>
@@ -32,117 +36,89 @@
       <select id="interval"><option>1m</option><option>5m</option><option>15m</option><option>1h</option></select>
     </label>
     <button id="reload">Przeładuj</button>
-    <span id="status" class="muted">● offline</span>
+    <span id="status" class="muted">● ładowanie…</span>
   </div>
 </header>
 
 <div class="wrap">
   <div class="card">
-    <div id="chart"></div>
+    <div id="chart">Ładowanie wykresu…</div>
+    <div id="msg"></div>
   </div>
 </div>
 
-<script src="https://unpkg.com/lightweight-charts/dist/lightweight-charts.standalone.production.js"></script>
+<!-- CDN + fallback -->
+<script src="https://cdn.jsdelivr.net/npm/lightweight-charts/dist/lightweight-charts.standalone.production.js"></script>
+<script>if(!window.LightweightCharts){var s=document.createElement('script');s.src='https://unpkg.com/lightweight-charts/dist/lightweight-charts.standalone.production.js';document.head.appendChild(s);}</script>
+
 <script>
 (function(){
-  const Chart = window.LightweightCharts;
-  const el = document.getElementById('chart');
-  const symSel = document.getElementById('symbol');
-  const intSel = document.getElementById('interval');
-  const btnReload = document.getElementById('reload');
-  const statusEl = document.getElementById('status');
+  const statusEl=document.getElementById('status');
+  const msgEl=document.getElementById('msg');
+  const el=document.getElementById('chart');
+  const modeSel=document.getElementById('mode');
+  const symSel=document.getElementById('symbol');
+  const intSel=document.getElementById('interval');
+  const btnReload=document.getElementById('reload');
 
-  let chart, candle, smaLine, emaLine, ws=null, symbol=symSel.value, interval=intSel.value;
+  let chart,candle,smaLine,emaLine,ws=null,simTimer=null;
+  let symbol=symSel.value, interval=intSel.value, mode=modeSel.value;
   let candles=[];
 
-  function setStatus(ok,msg=''){
-    statusEl.textContent = (ok?'● connected':'● offline') + (msg? ' — '+msg : '');
-    statusEl.style.color = ok? '#16a34a' : '#ef4444';
-  }
+  function setStatus(ok,note=''){statusEl.textContent=(ok?'● connected':'● offline')+(note?' — '+note:'');statusEl.style.color=ok?'#16a34a':'#ef4444'}
+  function info(t){msgEl.textContent=t||''}
+
+  function waitLib(cb){(function loop(i=0){if(window.LightweightCharts){cb();return} if(i>40){info('Nie udało się wczytać biblioteki. Ctrl+F5.');setStatus(false,'lib');return} setTimeout(()=>loop(i+1),150)})()}
 
   function mkChart(){
-    if(chart) { el.innerHTML=''; }
-    chart = Chart.createChart(el,{ width: el.clientWidth, height: 520, layout:{background:{type:'solid',color:'#fff'},textColor:'#0f172a'}, rightPriceScale:{borderVisible:false}, timeScale:{borderVisible:false} });
-    candle = chart.addCandlestickSeries();
-    smaLine = chart.addLineSeries({ lineWidth: 2, color: '#10b981' });
-    emaLine = chart.addLineSeries({ lineWidth: 2, color: '#ef4444' });
-    window.addEventListener('resize', ()=> chart.applyOptions({ width: el.clientWidth }) );
+    if(chart){el.innerHTML=''}
+    const LC=window.LightweightCharts, width=el.clientWidth||el.parentElement.clientWidth||1000;
+    chart=LC.createChart(el,{width,height:520,layout:{background:{type:'solid',color:'#fff'},textColor:'#0f172a'},rightPriceScale:{borderVisible:false},timeScale:{borderVisible:false}});
+    candle=chart.addCandlestickSeries();
+    smaLine=chart.addLineSeries({lineWidth:2,color:'#10b981'});
+    emaLine=chart.addLineSeries({lineWidth:2,color:'#ef4444'});
+    new ResizeObserver(()=>chart.applyOptions({width:el.clientWidth||width})).observe(el);
   }
+  const mapK=raw=>raw.map(k=>({time:Math.floor(k[0]/1000),open:+k[1],high:+k[2],low:+k[3],close:+k[4]}));
+  function sma(arr,n){const out=[];let sum=0;for(let i=0;i<arr.length;i++){sum+=arr[i].close;if(i>=n)sum-=arr[i-n].close;if(i>=n-1)out.push({time:arr[i].time,value:+(sum/n).toFixed(2)})}return out}
+  function ema(arr,n){const out=[],k=2/(n+1);let e=arr[0]?.close;if(e==null)return out;for(let i=0;i<arr.length;i++){e=i?(arr[i].close*k+e*(1-k)):arr[0].close;out.push({time:arr[i].time,value:+e.toFixed(2)})}return out}
 
-  function sma(arr, n){
-    const out=[]; let sum=0;
-    for(let i=0;i<arr.length;i++){
-      sum += arr[i].close; if(i>=n) sum -= arr[i-n].close;
-      if(i>=n-1) out.push({ time: arr[i].time, value: +(sum/n).toFixed(2) });
-    }
-    return out;
-  }
-  function ema(arr, n){
-    const out=[]; const k=2/(n+1);
-    let e = arr[0]?.close; if(e==null) return out;
-    for(let i=0;i<arr.length;i++){
-      e = i? (arr[i].close*k + e*(1-k)) : arr[0].close;
-      out.push({ time: arr[i].time, value: +e.toFixed(2) });
-    }
-    return out;
-  }
-
-  function mapKlines(raw){
-    // Binance klines: [openTime, open, high, low, close, ...]
-    return raw.map(k=>({
-      time: Math.floor(k[0]/1000),
-      open: +k[1], high:+k[2], low:+k[3], close:+k[4],
-    }));
-  }
-
-  async function seed(){
+  async function seedBinance(){
+    info('Pobieram dane (REST)…');
     const url=`https://api.binance.com/api/v3/klines?symbol=${symbol}&interval=${interval}&limit=500`;
-    const res = await fetch(url);
-    const data = await res.json();
-    candles = mapKlines(data);
-    candle.setData(candles);
-    smaLine.setData(sma(candles, 50));
-    emaLine.setData(ema(candles, 21));
+    const res=await fetch(url);const data=await res.json();
+    if(!Array.isArray(data)) throw new Error('REST != array');
+    candles=mapK(data);
+    candle.setData(candles);smaLine.setData(sma(candles,50));emaLine.setData(ema(candles,21));
+    info('');
   }
-
   function openWS(){
-    try{ ws && ws.close(); }catch{}
-    const stream = `${symbol.toLowerCase()}@kline_${interval}`;
-    ws = new WebSocket(`wss://stream.binance.com:9443/ws/${stream}`);
-    ws.onopen = ()=> setStatus(true, `${symbol}/${interval}`);
-    ws.onmessage = ev=>{
-      try{
-        const d = JSON.parse(ev.data);
-        const k = d.k;
-        const t = Math.floor(k.t/1000);
-        const cndl = { time:t, open:+k.o, high:+k.h, low:+k.l, close:+k.c };
-        if(candles.length && candles[candles.length-1].time === t){
-          candles[candles.length-1] = cndl;      // update
-        } else {
-          candles.push(cndl);                     // new
-          if(candles.length>2000) candles.shift();
-        }
-        candle.update(cndl);
-        smaLine.setData(sma(candles,50));
-        emaLine.setData(ema(candles,21));
-      }catch{}
-    };
-    ws.onclose = ()=>{ setStatus(false); setTimeout(()=>openWS(), 1500); };
-    ws.onerror = ()=> setStatus(false,'error');
+    try{ws&&ws.close()}catch{}; const stream=`${symbol.toLowerCase()}@kline_${interval}`;
+    ws=new WebSocket(`wss://stream.binance.com:9443/ws/${stream}`);
+    ws.onopen=()=>setStatus(true,`${symbol}/${interval}`);
+    ws.onmessage=ev=>{try{const d=JSON.parse(ev.data),k=d.k;const t=Math.floor(k.t/1000);const c={time:t,open:+k.o,high:+k.h,low:+k.l,close:+k.c};const last=candles[candles.length-1];if(last&&last.time===t)candles[candles.length-1]=c;else candles.push(c);candle.update(c);smaLine.setData(sma(candles,50));emaLine.setData(ema(candles,21));}catch{}};
+    ws.onclose =()=>{setStatus(false); if(mode==='binance') setTimeout(openWS,1500)};
+    ws.onerror =()=>setStatus(false,'error');
   }
 
-  async function reload(){
-    mkChart();
-    await seed();
-    openWS();
+  function startSim(){
+    stopSim(); setStatus(true,'sim'); info('Tryb Symulacja — świeca co 0.5s');
+    let t=Math.floor(Date.now()/1000)-500*60; let price=100; candles=[];
+    for(let i=0;i<200;i++){const o=price,c=o+(Math.random()-0.5)*1.2,h=Math.max(o,c)+Math.random()*0.8,l=Math.min(o,c)-Math.random()*0.8;candles.push({time:t,open:o,high:h,low:l,close:c});t+=60;price=c}
+    candle.setData(candles);smaLine.setData(sma(candles,50));emaLine.setData(ema(candles,21));
+    simTimer=setInterval(()=>{t+=60;const o=price,c=o+(Math.random()-0.5)*1.2,h=Math.max(o,c)+Math.random()*0.8,l=Math.min(o,c)-Math.random()*0.8;const cd={time:t,open:o,high:h,low:l,close:c};candles.push(cd);if(candles.length>2000)candles.shift();candle.update(cd);smaLine.setData(sma(candles,50));emaLine.setData(ema(candles,21));price=c},500);
   }
+  function stopSim(){if(simTimer){clearInterval(simTimer);simTimer=null}}
 
-  btnReload.onclick = reload;
-  symSel.onchange = ()=> { symbol=symSel.value; reload(); };
-  intSel.onchange = ()=> { interval=intSel.value; reload(); };
+  function cleanup(){stopSim(); if(ws){try{ws.close()}catch{} ws=null} setStatus(false); info('')}
+  async function reload(){cleanup(); mkChart(); if(mode==='binance'){try{await seedBinance(); openWS()}catch(e){setStatus(false,'seed error'); info('Błąd REST. Spróbuj Ctrl+F5 lub przełącz na „Symulacja”.')}} else {startSim()}}
 
-  // init
-  mkChart(); seed().then(openWS);
+  btnReload.onclick=reload;
+  modeSel.onchange=()=>{mode=modeSel.value; reload()};
+  symSel .onchange=()=>{symbol=symSel.value; if(mode==='binance') reload(); else startSim()};
+  intSel .onchange=()=>{interval=intSel.value; if(mode==='binance') reload()};
+
+  waitLib(()=>{ mkChart(); reload() });
 })();
 </script>
 </body>
