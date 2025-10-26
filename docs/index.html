@@ -1,1 +1,159 @@
 <!doctype html><html><body><h1>ElBotto live</h1></body></html>
+<!doctype html>
+<html lang="pl">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>ElBotto — Live</title>
+<style>
+  body{margin:0;font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial;background:#f6f7fb;color:#0f172a}
+  header{display:flex;justify-content:space-between;align-items:center;padding:12px 16px;background:#fff;border-bottom:1px solid #e5e7eb;position:sticky;top:0}
+  .wrap{max-width:1100px;margin:0 auto;padding:12px}
+  .card{background:#fff;border:1px solid #e5e7eb;border-radius:14px;padding:12px}
+  .muted{color:#6b7280;font-size:12px}
+  .good{color:#16a34a}.bad{color:#ef4444}
+  .btn{border:1px solid #d1d5db;background:#fff;padding:6px 10px;border-radius:10px;cursor:pointer}
+  .btn:active{transform:translateY(1px)}
+</style>
+</head>
+<body>
+<header>
+  <div>
+    <h1 style="margin:0;font-size:20px">ElBotto — Live</h1>
+    <div class="muted">Symulacja / Binance WebSocket (kline)</div>
+  </div>
+  <div style="display:flex;gap:8px;align-items:center">
+    <label>Źródło
+      <select id="source">
+        <option value="sim">Symulacja</option>
+        <option value="binance">Binance WS</option>
+      </select>
+    </label>
+    <label>Symbol
+      <select id="symbol">
+        <option>BTCUSDT</option><option>ETHUSDT</option><option>BNBUSDT</option><option>SOLUSDT</option>
+      </select>
+    </label>
+    <label>Interwał
+      <select id="interval"><option>1m</option><option>5m</option><option>15m</option><option>1h</option></select>
+    </label>
+    <span id="status" class="muted">● offline</span>
+  </div>
+</header>
+
+<div class="wrap">
+  <div class="card">
+    <div class="muted">Cena (<span id="sym">BTCUSDT</span>)</div>
+    <div style="font-size:32px;font-weight:700" id="price">—</div>
+    <div style="height:360px;margin-top:8px"><svg id="chart" viewBox="0 0 1000 360"></svg></div>
+    <div style="display:flex;gap:8px;margin-top:8px">
+      <button id="start" class="btn">Start</button>
+      <button id="stop" class="btn">Stop</button>
+      <button id="reset" class="btn">Reset</button>
+    </div>
+  </div>
+</div>
+
+<script>
+(function(){
+  const srcSel=document.getElementById('source');
+  const symSel=document.getElementById('symbol');
+  const intSel=document.getElementById('interval');
+  const priceEl=document.getElementById('price');
+  const statusEl=document.getElementById('status');
+  const symEl=document.getElementById('sym');
+  const svg=document.getElementById('chart');
+  const btnStart=document.getElementById('start');
+  const btnStop=document.getElementById('stop');
+  const btnReset=document.getElementById('reset');
+
+  let running=true;
+  const series=[];
+  let symbol='BTCUSDT';
+  let interval='1m';
+  let ws=null;
+
+  function setStatus(ok,msg=''){
+    statusEl.textContent=(ok?'● connected':'● offline')+(msg?' — '+msg:'');
+    statusEl.className = ok? 'good' : 'bad';
+  }
+
+  function render(){
+    const w=1000,h=360,N=series.length;
+    if(N<2){ svg.innerHTML=''; return }
+    const min=Math.min(...series),max=Math.max(...series),pad=(max-min)*0.1||1;
+    const yMin=min-pad,yMax=max+pad, xStep=w/(N-1);
+    const Y=v=> h-((v-yMin)/(yMax-yMin))*h;
+    let d='M 0 '+Y(series[0]);
+    for(let i=1;i<N;i++){ d+=' L '+(i*xStep)+' '+Y(series[i]); }
+    svg.innerHTML=`<rect x="0" y="0" width="${w}" height="${h}" fill="#fff"/>
+<path d="${d}" stroke="#0ea5e9" stroke-width="2" fill="none"/>`;
+  }
+
+  async function seed(){
+    if(srcSel.value!=='binance') return;
+    const url=`https://api.binance.com/api/v3/klines?symbol=${symbol}&interval=${interval}&limit=150`;
+    try{
+      const arr = await fetch(url).then(r=>r.json());
+      if(!Array.isArray(arr)) return;
+      series.length=0;
+      arr.forEach(k=> series.push(Number(k[4])));
+      priceEl.textContent = series.length? series.at(-1).toFixed(2) : '—';
+      render();
+    }catch(e){}
+  }
+
+  function connectWS(){
+    try{ if(ws) ws.close(); }catch{}
+    const stream = symbol.toLowerCase()+'@kline_'+interval;
+    ws = new WebSocket('wss://stream.binance.com:9443/ws/'+stream);
+    ws.onopen = ()=> setStatus(true, symbol+'/'+interval);
+    ws.onmessage = ev=>{
+      if(!running) return;
+      try{
+        const d=JSON.parse(ev.data);
+        const p=Number(d.k?.c||d.c||d.p);
+        if(!isFinite(p)) return;
+        priceEl.textContent=p.toFixed(2);
+        series.push(p); if(series.length>1000) series.shift();
+        render();
+      }catch{}
+    };
+    ws.onclose = ()=>{ setStatus(false); if(srcSel.value==='binance') setTimeout(connectWS,1500); };
+    ws.onerror = ()=> setStatus(false,'error');
+  }
+
+  function tickSim(){
+    if(!running || srcSel.value!=='sim') return;
+    const last=series.length? series[series.length-1] : 100;
+    const drift=(100-last)*0.05, shock=(Math.random()-0.5)*0.9;
+    const next=Math.max(0.1, last+drift+shock);
+    series.push(next); if(series.length>1000) series.shift();
+    priceEl.textContent=next.toFixed(2);
+    render();
+  }
+
+  // UI events
+  srcSel.addEventListener('change', async ()=>{
+    if(srcSel.value==='binance'){ await seed(); connectWS(); }
+    else { try{ ws && ws.close(); }catch{} setStatus(false); }
+  });
+  symSel.addEventListener('change', async ()=>{
+    symbol=symSel.value; symEl.textContent=symbol;
+    if(srcSel.value==='binance'){ await seed(); connectWS(); }
+  });
+  intSel.addEventListener('change', async ()=>{
+    interval=intSel.value;
+    if(srcSel.value==='binance'){ await seed(); connectWS(); }
+  });
+  btnStart.onclick=()=>{ running=true; };
+  btnStop.onclick =()=>{ running=false; };
+  btnReset.onclick=()=>{ running=false; series.length=0; priceEl.textContent='—'; render(); };
+
+  // init
+  setInterval(tickSim, 300);
+  render();
+})();
+</script>
+</body>
+</html>
