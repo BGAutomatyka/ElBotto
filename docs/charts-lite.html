@@ -1,5 +1,6 @@
 <!doctype html><html lang="pl"><meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1"><title>ElBotto — Charts Lite</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ElBotto — Charts Lite PRO (SVG)</title>
 <style>
   body{margin:0;font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial;background:#f6f7fb;color:#0f172a}
   header{display:flex;justify-content:space-between;align-items:center;padding:12px 16px;background:#fff;border-bottom:1px solid #e5e7eb;position:sticky;top:0}
@@ -7,12 +8,14 @@
   select,button{border:1px solid #d1d5db;border-radius:8px;padding:6px 8px;background:#fff}
   .wrap{max-width:1100px;margin:0 auto;padding:12px}
   .card{background:#fff;border:1px solid #e5e7eb;border-radius:14px;padding:12px}
-  #chart{width:100%;height:520px}
+  #main,#osc{width:100%;height:420px} #osc{height:200px;margin-top:10px}
   .muted{color:#6b7280;font-size:12px}
 </style>
 <header>
-  <div><h1 style="margin:0;font-size:20px">ElBotto — Charts Lite</h1>
-    <div class="muted">Czysty SVG • Binance REST + WebSocket • bez CDN</div></div>
+  <div>
+    <h1 style="margin:0;font-size:20px">ElBotto — Charts Lite PRO</h1>
+    <div class="muted">Czysty SVG • Binance REST + WebSocket • świece + SMA/EMA + MACD + RSI</div>
+  </div>
   <div class="row">
     <label>Symbol
       <select id="symbol"><option>BTCUSDT</option><option>ETHUSDT</option><option>BNBUSDT</option><option>SOLUSDT</option></select>
@@ -24,59 +27,143 @@
     <span id="status" class="muted">● offline</span>
   </div>
 </header>
-<div class="wrap"><div class="card">
-  <svg id="chart" viewBox="0 0 1000 520" preserveAspectRatio="none"></svg>
-</div></div>
+
+<div class="wrap">
+  <div class="card">
+    <svg id="main" viewBox="0 0 1000 420" preserveAspectRatio="none"></svg>
+    <svg id="osc"  viewBox="0 0 1000 200" preserveAspectRatio="none"></svg>
+  </div>
+</div>
+
 <script>
 (function(){
-  const svg=document.getElementById('chart'), symSel=document.getElementById('symbol'),
-        intSel=document.getElementById('interval'), btn=document.getElementById('reload'),
-        statusEl=document.getElementById('status');
-  let symbol=symSel.value, interval=intSel.value, ws=null, data=[];
+  const svgMain=document.getElementById('main');
+  const svgOsc =document.getElementById('osc');
+  const symSel =document.getElementById('symbol');
+  const intSel =document.getElementById('interval');
+  const btn    =document.getElementById('reload');
+  const statusEl=document.getElementById('status');
+
+  let ws=null, symbol=symSel.value, interval=intSel.value;
+  let data=[]; // {t,o,h,l,c,v}
+
   function setStatus(ok,msg=''){ statusEl.textContent=(ok?'● connected':'● offline')+(msg?' — '+msg:''); statusEl.style.color=ok?'#16a34a':'#ef4444' }
-  function mapK(a){ return a.map(k=>({t:+k[0], o:+k[1], h:+k[2], l:+k[3], c:+k[4]})) }
-  function render(){
-    const W=1000,H=520,N=data.length; svg.innerHTML='';
-    if(N<2){ return }
-    // scale
+  const mapK = a => a.map(k=>({t:+k[0], o:+k[1], h:+k[2], l:+k[3], c:+k[4], v:+k[5]}));
+
+  // --- indicators ---
+  function smaC(n){ const out=[]; let sum=0; for(let i=0;i<data.length;i++){ sum+=data[i].c; if(i>=n) sum-=data[i-n].c; if(i>=n-1) out.push({t:data[i].t, v:sum/n}); } return out }
+  function emaC(n){ const out=[]; const k=2/(n+1); if(!data.length) return out; let e=data[0].c; for(let i=0;i<data.length;i++){ e=i?(data[i].c*k + e*(1-k)):data[0].c; out.push({t:data[i].t, v:e}); } return out }
+  function rsi(n=14){ if(data.length<n+1) return []; const out=[]; let gains=0,losses=0; for(let i=1;i<=n;i++){ const d=data[i].c-data[i-1].c; if(d>0) gains+=d; else losses-=d; } let avgG=gains/n, avgL=losses/n; out.push({t:data[n].t, v:100-100/(1+(avgG/(avgL||1e-9)))});
+    for(let i=n+1;i<data.length;i++){ const d=data[i].c-data[i-1].c; const g=d>0?d:0, l=d<0? -d:0; avgG=(avgG*(n-1)+g)/n; avgL=(avgL*(n-1)+l)/n; out.push({t:data[i].t, v:100-100/(1+(avgG/(avgL||1e-9)))}) } return out }
+  function macd(){ if(!data.length) return {m:[],s:[],h:[]}; const ema12=emaC(12).map(x=>x.v), ema26=emaC(26).map(x=>x.v);
+    const m=[]; for(let i=0;i<data.length;i++){ m.push( (ema12[i]??data[i].c) - (ema26[i]??data[i].c) ); }
+    // signal: ema9 of macd, aligned
+    const s=[]; const k=2/(9+1); let e=m[0]||0; for(let i=0;i<m.length;i++){ e = i? (m[i]*k + e*(1-k)) : m[0]; s.push(e) }
+    const h=m.map((v,i)=> v - s[i]);
+    return {m,s,h}
+  }
+
+  // --- render main (candles + SMA/EMA) ---
+  function renderMain(){
+    const W=1000,H=420,N=data.length; svgMain.innerHTML='';
+    if(N<2) { svgMain.innerHTML='<text x="12" y="22" fill="#9ca3af" font-size="12">Brak danych…</text>'; return }
     const min=Math.min(...data.map(d=>d.l)), max=Math.max(...data.map(d=>d.h));
-    const pad=(max-min)*0.05||1, yMin=min-pad, yMax=max+pad, xStep=W/(N-1);
-    const Y=v=> H - ( (v - yMin)/(yMax - yMin) )*H;
-    // grid
-    svg.innerHTML += `<rect x="0" y="0" width="${W}" height="${H}" fill="#fff"/>`;
-    for(let i=1;i<6;i++){ const y=i*(H/6); svg.innerHTML+=`<line x1="0" y1="${y}" x2="${W}" y2="${y}" stroke="#eef0f5"/>` }
-    // candles
+    const pad=(max-min)*0.05||1, yMin=min-pad, yMax=max+pad, xStep=W/(N-1), Y=v=> H-((v-yMin)/(yMax-yMin))*H;
+
+    // tło + siatka
+    let parts=[`<rect x="0" y="0" width="${W}" height="${H}" fill="#fff"/>`];
+    for(let i=1;i<6;i++){ const y=i*(H/6); parts.push(`<line x1="0" y1="${y}" x2="${W}" y2="${y}" stroke="#eef0f5"/>`) }
+
+    // świece
     for(let i=0;i<N;i++){
       const d=data[i], x=i*xStep, yO=Y(d.o), yC=Y(d.c), yH=Y(d.h), yL=Y(d.l);
       const up=d.c>=d.o, col=up?'#10b981':'#ef4444';
       const w=Math.max(1.5, xStep*0.6), x0=x-w/2, yB=Math.min(yO,yC), h=Math.max(1, Math.abs(yC-yO));
-      svg.innerHTML += `<line x1="${x}" y1="${yH}" x2="${x}" y2="${yL}" stroke="${col}" stroke-width="1"/>`;
-      svg.innerHTML += `<rect x="${x0}" y="${yB}" width="${w}" height="${h}" fill="${col}" opacity="0.8"/>`;
+      parts.push(`<line x1="${x}" y1="${yH}" x2="${x}" y2="${yL}" stroke="${col}" stroke-width="1"/>`);
+      parts.push(`<rect x="${x0}" y="${yB}" width="${w}" height="${h}" fill="${col}" opacity="0.85"/>`);
     }
+
+    // SMA/EMA
+    function pathOf(arr){ if(!arr.length) return ''; const xS=W/(N-1); let d=`M 0 ${Y(arr[0].v)}`; for(let i=1;i<arr.length;i++){ d += ` L ${i*xS} ${Y(arr[i].v)}` } return d }
+    const sma = smaC(50), ema = emaC(21);
+    if(sma.length) parts.push(`<path d="${pathOf(sma)}" stroke="#0ea5e9" stroke-width="1.8" fill="none"/>`);
+    if(ema.length) parts.push(`<path d="${pathOf(ema)}" stroke="#a855f7" stroke-width="1.6" fill="none"/>`);
+
+    svgMain.innerHTML = parts.join('');
   }
+
+  // --- render oscillators (MACD + RSI) ---
+  function renderOsc(){
+    const W=1000,H=200,N=data.length; svgOsc.innerHTML='';
+    if(N<30){ svgOsc.innerHTML='<text x="12" y="22" fill="#9ca3af" font-size="12">Za mało danych do oscylatorów…</text>'; return }
+
+    let parts=[`<rect x="0" y="0" width="${W}" height="${H}" fill="#fff"/>`];
+    // MACD
+    const {m,s,h}=macd();
+    const maxAbs = Math.max(...h.map(v=>Math.abs(v)), 1e-6);
+    const mid = H*0.45, scale = (H*0.35)/maxAbs, xStep=W/(N-1);
+
+    for(let i=0;i<N;i++){
+      const v=h[i]; if(v==null) continue;
+      const bar=v*scale; const y = bar<0? mid : (mid-bar); const hh=Math.abs(bar);
+      parts.push(`<rect x="${i*xStep-1}" y="${y}" width="2" height="${hh}" fill="${v>=0?'#f59e0b':'#f97316'}" opacity="0.85"/>`);
+    }
+    function pathLine(arr, min, max){
+      const Y=v=> H - ((v-min)/(max-min))*H; let d='', started=false;
+      for(let i=0;i<arr.length;i++){ const v=arr[i]; if(v==null) continue; const x=i*xStep, y=Y(v); d += started? ` L ${x} ${y}` : `M ${x} ${y}`; started=true; }
+      return d;
+    }
+    const mm = Math.max(...m), mn = Math.min(...m), lo=Math.min(mn, -maxAbs), hi=Math.max(mm, maxAbs);
+    parts.push(`<path d="${pathLine(m,lo,hi)}" stroke="#f59e0b" stroke-width="1.6" fill="none"/>`);
+    parts.push(`<path d="${pathLine(s,lo,hi)}" stroke="#fb923c" stroke-width="1.2" fill="none"/>`);
+
+    // RSI
+    const r = rsi(14);
+    if(r.length){
+      const rW = r.map(x=>x.v);
+      const xS = W/(r.length-1);
+      const Y = v => H - (v/100)*H;
+      let d = `M 0 ${Y(rW[0])}`; for(let i=1;i<rW.length;i++){ d += ` L ${i*xS} ${Y(rW[i])}` }
+      parts.push(`<rect x="0" y="${Y(70)}" width="${W}" height="1" fill="#e5e7eb"/>`);
+      parts.push(`<rect x="0" y="${Y(30)}" width="${W}" height="1" fill="#e5e7eb"/>`);
+      parts.push(`<path d="${d}" stroke="#8b5cf6" stroke-width="1.4" fill="none"/>`);
+    }
+
+    svgOsc.innerHTML = parts.join('');
+  }
+
+  function renderAll(){ renderMain(); renderOsc(); }
+
   async function seed(){
-    const url=`https://api.binance.com/api/v3/klines?symbol=${symbol}&interval=${interval}&limit=300`;
+    const url=`https://api.binance.com/api/v3/klines?symbol=${symbol}&interval=${interval}&limit=400`;
     const res=await fetch(url); const arr=await res.json();
     if(!Array.isArray(arr)) throw new Error('REST != array');
-    data=mapK(arr); render();
+    data = mapK(arr);
+    renderAll();
   }
+
   function openWS(){
     try{ ws && ws.close() }catch{}; const stream=`${symbol.toLowerCase()}@kline_${interval}`;
-    ws=new WebSocket(`wss://stream.binance.com:9443/ws/${stream}`);
+    ws = new WebSocket(`wss://stream.binance.com:9443/ws/${stream}`);
     ws.onopen=()=>setStatus(true,`${symbol}/${interval}`);
-    ws.onmessage=ev=>{ try{ const k=JSON.parse(ev.data).k;
-      const t=k.t, o=+k.o, h=+k.h, l=+k.l, c=+k.c;
-      const last=data[data.length-1];
-      const obj={t:o? t : last?.t, o,h,l,c};
+    ws.onmessage=ev=>{ try{
+      const k = JSON.parse(ev.data).k;
+      const t = +k.t, obj = {t, o:+k.o, h:+k.h, l:+k.l, c:+k.c, v:+k.v};
+      const last = data[data.length-1];
       if(last && last.t===t) data[data.length-1]=obj; else data.push(obj);
-      if(data.length>1500) data.shift();
-      render();
+      if(data.length>2000) data.shift();
+      renderAll();
     }catch{} };
     ws.onclose =()=>{ setStatus(false); setTimeout(openWS,1500) };
     ws.onerror =()=> setStatus(false,'error');
   }
-  async function reload(){ setStatus(false,'seed'); await seed().catch(()=>{}); openWS() }
-  btn.onclick=reload; symSel.onchange=()=>{ symbol=symSel.value; reload() }; intSel.onchange=()=>{ interval=intSel.value; reload() };
+
+  async function reload(){ setStatus(false,'seed'); await seed().catch(()=>{}); openWS(); }
+
+  btn.onclick = reload;
+  symSel.onchange = ()=>{ symbol=symSel.value; reload() };
+  intSel.onchange = ()=>{ interval=intSel.value; reload() };
+
   reload();
 })();
 </script>
