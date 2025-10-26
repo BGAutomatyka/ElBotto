@@ -1,0 +1,149 @@
+<!doctype html>
+<html lang="pl">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>ElBotto — Charts (Binance)</title>
+<style>
+  body{margin:0;font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial;background:#f6f7fb;color:#0f172a}
+  header{display:flex;justify-content:space-between;align-items:center;padding:12px 16px;background:#fff;border-bottom:1px solid #e5e7eb;position:sticky;top:0}
+  .wrap{max-width:1100px;margin:0 auto;padding:12px}
+  .card{background:#fff;border:1px solid #e5e7eb;border-radius:14px;padding:12px}
+  .muted{color:#6b7280;font-size:12px}
+  select,button{border:1px solid #d1d5db;border-radius:8px;padding:6px 8px;background:#fff}
+  .row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+  #chart{height:520px}
+</style>
+</head>
+<body>
+<header>
+  <div>
+    <h1 style="margin:0;font-size:20px">ElBotto — Charts</h1>
+    <div class="muted">Binance Candles + SMA/EMA (live)</div>
+  </div>
+  <div class="row">
+    <label>Symbol
+      <select id="symbol">
+        <option>BTCUSDT</option><option>ETHUSDT</option>
+        <option>BNBUSDT</option><option>SOLUSDT</option>
+      </select>
+    </label>
+    <label>Interwał
+      <select id="interval"><option>1m</option><option>5m</option><option>15m</option><option>1h</option></select>
+    </label>
+    <button id="reload">Przeładuj</button>
+    <span id="status" class="muted">● offline</span>
+  </div>
+</header>
+
+<div class="wrap">
+  <div class="card">
+    <div id="chart"></div>
+  </div>
+</div>
+
+<script src="https://unpkg.com/lightweight-charts/dist/lightweight-charts.standalone.production.js"></script>
+<script>
+(function(){
+  const Chart = window.LightweightCharts;
+  const el = document.getElementById('chart');
+  const symSel = document.getElementById('symbol');
+  const intSel = document.getElementById('interval');
+  const btnReload = document.getElementById('reload');
+  const statusEl = document.getElementById('status');
+
+  let chart, candle, smaLine, emaLine, ws=null, symbol=symSel.value, interval=intSel.value;
+  let candles=[];
+
+  function setStatus(ok,msg=''){
+    statusEl.textContent = (ok?'● connected':'● offline') + (msg? ' — '+msg : '');
+    statusEl.style.color = ok? '#16a34a' : '#ef4444';
+  }
+
+  function mkChart(){
+    if(chart) { el.innerHTML=''; }
+    chart = Chart.createChart(el,{ width: el.clientWidth, height: 520, layout:{background:{type:'solid',color:'#fff'},textColor:'#0f172a'}, rightPriceScale:{borderVisible:false}, timeScale:{borderVisible:false} });
+    candle = chart.addCandlestickSeries();
+    smaLine = chart.addLineSeries({ lineWidth: 2, color: '#10b981' });
+    emaLine = chart.addLineSeries({ lineWidth: 2, color: '#ef4444' });
+    window.addEventListener('resize', ()=> chart.applyOptions({ width: el.clientWidth }) );
+  }
+
+  function sma(arr, n){
+    const out=[]; let sum=0;
+    for(let i=0;i<arr.length;i++){
+      sum += arr[i].close; if(i>=n) sum -= arr[i-n].close;
+      if(i>=n-1) out.push({ time: arr[i].time, value: +(sum/n).toFixed(2) });
+    }
+    return out;
+  }
+  function ema(arr, n){
+    const out=[]; const k=2/(n+1);
+    let e = arr[0]?.close; if(e==null) return out;
+    for(let i=0;i<arr.length;i++){
+      e = i? (arr[i].close*k + e*(1-k)) : arr[0].close;
+      out.push({ time: arr[i].time, value: +e.toFixed(2) });
+    }
+    return out;
+  }
+
+  function mapKlines(raw){
+    // Binance klines: [openTime, open, high, low, close, ...]
+    return raw.map(k=>({
+      time: Math.floor(k[0]/1000),
+      open: +k[1], high:+k[2], low:+k[3], close:+k[4],
+    }));
+  }
+
+  async function seed(){
+    const url=`https://api.binance.com/api/v3/klines?symbol=${symbol}&interval=${interval}&limit=500`;
+    const res = await fetch(url);
+    const data = await res.json();
+    candles = mapKlines(data);
+    candle.setData(candles);
+    smaLine.setData(sma(candles, 50));
+    emaLine.setData(ema(candles, 21));
+  }
+
+  function openWS(){
+    try{ ws && ws.close(); }catch{}
+    const stream = `${symbol.toLowerCase()}@kline_${interval}`;
+    ws = new WebSocket(`wss://stream.binance.com:9443/ws/${stream}`);
+    ws.onopen = ()=> setStatus(true, `${symbol}/${interval}`);
+    ws.onmessage = ev=>{
+      try{
+        const d = JSON.parse(ev.data);
+        const k = d.k;
+        const t = Math.floor(k.t/1000);
+        const cndl = { time:t, open:+k.o, high:+k.h, low:+k.l, close:+k.c };
+        if(candles.length && candles[candles.length-1].time === t){
+          candles[candles.length-1] = cndl;      // update
+        } else {
+          candles.push(cndl);                     // new
+          if(candles.length>2000) candles.shift();
+        }
+        candle.update(cndl);
+        smaLine.setData(sma(candles,50));
+        emaLine.setData(ema(candles,21));
+      }catch{}
+    };
+    ws.onclose = ()=>{ setStatus(false); setTimeout(()=>openWS(), 1500); };
+    ws.onerror = ()=> setStatus(false,'error');
+  }
+
+  async function reload(){
+    mkChart();
+    await seed();
+    openWS();
+  }
+
+  btnReload.onclick = reload;
+  symSel.onchange = ()=> { symbol=symSel.value; reload(); };
+  intSel.onchange = ()=> { interval=intSel.value; reload(); };
+
+  // init
+  mkChart(); seed().then(openWS);
+})();
+</script>
+</body>
+</html>
