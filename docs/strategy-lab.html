@@ -2,21 +2,28 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>ElBotto — Strategy Lab (Backtest, SVG)</title>
 <style>
-  :root{--bg:#f6f7fb;--card:#fff;--muted:#6b7280;--grid:#eef0f5;--up:#10b981;--dn:#ef4444;--sma:#0ea5e9;--ema:#a855f7}
+  :root{
+    --bg:#f6f7fb;--card:#fff;--muted:#6b7280;--grid:#eef0f5;
+    --up:#10b981;--dn:#ef4444;--pri:#0ea5e9;--acc:#a855f7
+  }
+  *{box-sizing:border-box}
   body{margin:0;font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial;background:var(--bg);color:#0f172a}
   header{display:flex;justify-content:space-between;align-items:center;padding:12px 16px;background:#fff;border-bottom:1px solid #e5e7eb;position:sticky;top:0;z-index:10}
   .row{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
-  select,input,button{border:1px solid #d1d5db;border-radius:8px;padding:6px 8px;background:#fff}
-  input[type="number"]{width:90px}
   .wrap{max-width:1200px;margin:0 auto;padding:12px}
   .card{background:var(--card);border:1px solid #e5e7eb;border-radius:14px;padding:12px;margin-bottom:12px}
   .muted{color:var(--muted);font-size:12px}
+  select,button,input{border:1px solid #d1d5db;border-radius:8px;padding:6px 8px;background:#fff}
+  input[type="number"]{width:88px}
+  button{cursor:pointer}
   .grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
   .kpi{display:flex;gap:12px;flex-wrap:wrap}
   .kpi .pill{background:#fff;border:1px solid #e5e7eb;border-radius:10px;padding:6px 10px;font-size:12px}
   svg{width:100%}
   pre{white-space:pre-wrap;word-break:break-word;max-height:280px;overflow:auto;background:#fff;border:1px solid #e5e7eb;border-radius:10px;padding:8px}
   .group{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+  .hint{border-bottom:1px dotted #94a3b8;cursor:help}
+  .sep{height:1px;background:#eef0f5;margin:8px 0}
 </style>
 
 <header>
@@ -26,37 +33,49 @@
   </div>
   <div class="row">
     <label>Symbol
-      <select id="symbol"><option>BTCUSDT</option><option>ETHUSDT</option><option>BNBUSDT</option><option>SOLUSDT</option></select>
+      <select id="symbol" title="Para z Binance (spot)">
+        <option>BTCUSDT</option><option>ETHUSDT</option><option>BNBUSDT</option><option>SOLUSDT</option>
+      </select>
     </label>
     <label>Interwał
-      <select id="interval"><option>1m</option><option>5m</option><option>15m</option><option>1h</option></select>
+      <select id="interval" title="Interwał świec">
+        <option>1m</option><option>5m</option><option>15m</option><option>1h</option>
+      </select>
     </label>
     <label>Świec
-      <input id="bars" type="number" value="1000" min="100" max="5000">
+      <input id="bars" type="number" value="1200" min="100" max="5000" title="Ile ostatnich świec wczytać (max 5000)">
     </label>
     <label>Strategia
-      <select id="strategy">
+      <select id="strategy" title="Wybierz algorytm">
         <option value="ema">EMA Cross</option>
-        <option value="rsi">RSI Mean Rev</option>
+        <option value="rsi">RSI Mean Reversion</option>
         <option value="bb">Bollinger Breakout</option>
       </select>
     </label>
-    <button id="run">Backtest</button>
-    <button id="csv" title="Export trades as CSV">Export CSV</button>
+    <button id="run" title="Uruchom backtest">Backtest</button>
+    <button id="csv" title="Zapisz transakcje do CSV">Export CSV</button>
     <span id="status" class="muted">● idle</span>
   </div>
 </header>
 
 <div class="wrap">
   <div class="card">
+    <!-- parametry strategii renderowane dynamicznie -->
     <div id="params" class="row" style="gap:14px"></div>
 
-    <div class="row" style="gap:18px;margin-top:6px">
-      <div class="group">
-        <span class="muted">Fee (bps)</span><input id="p_fee" type="number" value="5" min="0" max="100">
-        <span class="muted">Slippage (bps)</span><input id="p_slip" type="number" value="2" min="0" max="100">
+    <div class="sep"></div>
+
+    <!-- ryzyko / egzekucja -->
+    <div class="row" style="gap:18px">
+      <div class="group" title="Opłaty i poślizg egzekucji (w punktach bazowych; 1 bps = 0.01%)">
+        <span class="muted">Fee <span class="hint" title="Na każdą stronę transakcji (wejście/wyjście)">bps</span></span>
+        <input id="p_fee" type="number" value="5" min="0" max="100">
+        <span class="muted">Slippage</span>
+        <input id="p_slip" type="number" value="2" min="0" max="200">
+        <span class="muted">Units</span>
+        <input id="p_units" type="number" value="1" step="0.1" min="0">
       </div>
-      <div class="group">
+      <div class="group" title="Parametry wyjść obronnych (dla pozycji LONG)">
         <label><input id="p_use_sl" type="checkbox" checked> SL%</label><input id="p_sl" type="number" value="1.0" step="0.1" min="0">
         <label><input id="p_use_tp" type="checkbox" checked> TP%</label><input id="p_tp" type="number" value="1.2" step="0.1" min="0">
         <label><input id="p_use_tr" type="checkbox"> Trailing%</label><input id="p_tr" type="number" value="0.8" step="0.1" min="0">
@@ -87,7 +106,7 @@
 
 <script>
 (function(){
-  // --- DOM refs
+  // ========= DOM =========
   const symSel=document.getElementById('symbol');
   const intSel=document.getElementById('interval');
   const barsInp=document.getElementById('bars');
@@ -108,28 +127,31 @@
   const k_dd=document.getElementById('k_dd');
   const k_eq=document.getElementById('k_eq');
 
-  // --- Utils
+  // ========= Utils =========
   const sleep=ms=>new Promise(r=>setTimeout(r,ms));
   const mapK=a=>a.map(k=>({t:+k[0], o:+k[1], h:+k[2], l:+k[3], c:+k[4], v:+k[5]}));
+  const clamp=(v,min,max)=>Math.max(min,Math.min(max,v));
 
   async function fetchKlines(symbol, interval, candles){
+    // pobieramy partiami do limitu 1000, cofając się w czasie
     const out=[]; let end=null;
     while(out.length < candles){
       const need=candles - out.length; const limit=Math.min(1000, need);
       const url = `https://api.binance.com/api/v3/klines?symbol=${symbol}&interval=${interval}&limit=${limit}` + (end?`&endTime=${end}`:'');
-      const json = await fetch(url).then(r=>r.json());
+      const res = await fetch(url);
+      const json = await res.json();
       if(!Array.isArray(json) || !json.length) break;
       const batch = mapK(json);
-      if(out.length && batch.length && batch[0].t === out[0]?.t) break;
+      if(out.length && batch.length && batch[0].t === out[0]?.t) break; // anty pętla
       out.unshift(...batch);
       end = batch[0].t - 1;
-      await sleep(80);
+      await sleep(70); // lekki throttling
       if(batch.length < limit) break;
     }
     return out.slice(-candles);
   }
 
-  // --- Indicators
+  // ========= Indykatory =========
   const SMA=(arr,n,sel)=>(()=>{const out=[];let s=0;for(let i=0;i<arr.length;i++){s+=sel(arr[i]); if(i>=n) s-=sel(arr[i-n]); if(i>=n-1) out.push({t:arr[i].t,v:s/n})}return out})();
   const EMA=(arr,n,sel)=>(()=>{const out=[];const k=2/(n+1); let e=sel(arr[0]); for(let i=0;i<arr.length;i++){ e=i?(sel(arr[i])*k + e*(1-k)):sel(arr[0]); out.push({t:arr[i].t,v:e}) } return out})();
   function RSI(arr,n,sel){ if(arr.length<n+1) return []; const out=[]; let g=0,l=0;
@@ -149,7 +171,7 @@
     return out;
   }
 
-  // --- Strategy param UIs
+  // ========= UI parametrów =========
   function renderParams(){
     const t=stratSel.value;
     if(t==='ema'){
@@ -172,22 +194,23 @@
   }
   stratSel.onchange=renderParams; renderParams();
 
-  // --- Backtest core (LONG/FLAT, 1 unit)
+  // ========= Backtest core (LONG/FLAT) =========
   function backtest(candles, signalFn, risk){
     const trades=[], equity=[], logs=[];
     let pos=0, entry=0, entryBar=-1, highSince=0; // trailing
     let eq=10000;
+    const units = Math.max(0, +document.getElementById('p_units').value || 1);
 
     const feeMult = bps => (bps/10000);
     const execBuy  = px => px*(1 + risk.slipBps/10000);
     const execSell = px => px*(1 - risk.slipBps/10000);
 
     for(let i=1;i<candles.length;i++){
-      const c=candles[i], prev=candles[i-1];
-      // trailing update (po high)
+      const c=candles[i]; // {o,h,l,c,t}
+      // trailing update (dla LONG)
       if(pos===1){ highSince = Math.max(highSince, c.h); }
 
-      // Risk exits intrabar (priorytet SL -> Trailing -> TP; uproszczenie kolejności)
+      // Wyjścia obronne intra-bar (kolejność: SL -> Trailing -> TP; konserwatywnie)
       if(pos===1){
         const tpPx = risk.useTP ? entry*(1 + risk.tpPct/100) : Infinity;
         const slPx = risk.useSL ? entry*(1 - risk.slPct/100) : -Infinity;
@@ -199,59 +222,59 @@
         else if (risk.useTP && c.h >= tpPx){ exitReason='TP'; exitPx=tpPx; }
 
         if(exitPx!=null){
-          // SELL
           const px = execSell(exitPx);
-          const pnl = (px - entry);
-          const fee = (entry * feeMult(risk.feeBps)) + (px * feeMult(risk.feeBps));
+          const pnl = (px - entry) * units;
+          const fee = (entry * feeMult(risk.feeBps) + px * feeMult(risk.feeBps)) * units;
           eq += (pnl - fee);
-          trades.push({time:c.t,type:'SELL',price:px,pnl,reason:exitReason});
+          trades.push({time:c.t,type:'SELL',price:+px.toFixed(8),pnl:+pnl.toFixed(2),reason:exitReason,eqAfter:+eq.toFixed(2)});
           logs.push(`${exitReason} SELL @ ${px.toFixed(2)} | PnL ${pnl.toFixed(2)} | Fee ${fee.toFixed(2)} | Eq ${eq.toFixed(2)}`);
           pos=0; entry=0; entryBar=-1; highSince=0;
         }
       }
 
-      // Sygnał strategii (po ryzyku)
+      // Sygnał algorytmu (po ewentualnych wyjściach risk)
       const sig = signalFn(i, candles); // BUY | FLAT | HOLD
       if(sig==='BUY' && pos===0){
         const raw = c.c; const px = execBuy(raw);
-        const fee = px * feeMult(risk.feeBps);
+        const fee = (px * feeMult(risk.feeBps)) * units;
         eq -= fee; // opłata wejścia
         pos=1; entry=px; entryBar=i; highSince=c.h;
-        trades.push({time:c.t,type:'BUY',price:px});
+        trades.push({time:c.t,type:'BUY',price:+px.toFixed(8),eqAfter:+eq.toFixed(2)});
         logs.push(`BUY @ ${px.toFixed(2)} | Fee ${fee.toFixed(2)} | Eq ${eq.toFixed(2)}`);
       } else if(sig==='FLAT' && pos===1){
         const px = execSell(c.c);
-        const pnl = (px - entry);
-        const fee = (px * feeMult(risk.feeBps));
+        const pnl = (px - entry) * units;
+        const fee = (px * feeMult(risk.feeBps)) * units;
         eq += (pnl - fee);
-        trades.push({time:c.t,type:'SELL',price:px,pnl,reason:'Signal'});
+        trades.push({time:c.t,type:'SELL',price:+px.toFixed(8),pnl:+pnl.toFixed(2),reason:'Signal',eqAfter:+eq.toFixed(2)});
         logs.push(`Signal SELL @ ${px.toFixed(2)} | PnL ${pnl.toFixed(2)} | Fee ${fee.toFixed(2)} | Eq ${eq.toFixed(2)}`);
         pos=0; entry=0; entryBar=-1; highSince=0;
       }
 
-      // Equity (co bar) = realised eq + uPnL - (brak dodatkowych fee)
-      const upnl = pos ? (c.c - entry) : 0;
-      equity.push({t:c.t, v: eq + upnl});
+      // Equity (co bar) = realised eq + uPnL
+      const upnl = pos ? (c.c - entry) * units : 0;
+      equity.push({t:c.t, v: +(eq + upnl).toFixed(2)});
     }
 
-    // Domknięcie EOD jeśli otwarte
+    // Domknięcie EOD
     const last=candles[candles.length-1];
     if(pos===1){
       const px = execSell(last.c);
-      const pnl=(px-entry);
-      const fee=(px * (risk.feeBps/10000));
+      const pnl=(px-entry) * units;
+      const fee=(px * (risk.feeBps/10000)) * units;
       eq += (pnl - fee);
-      trades.push({time:last.t,type:'SELL',price:px,pnl,reason:'EOD'});
+      trades.push({time:last.t,type:'SELL',price:+px.toFixed(8),pnl:+pnl.toFixed(2),reason:'EOD',eqAfter:+eq.toFixed(2)});
       logs.push(`EOD SELL @ ${px.toFixed(2)} | PnL ${pnl.toFixed(2)} | Fee ${fee.toFixed(2)} | Eq ${eq.toFixed(2)}`);
-      equity[equity.length-1] = {t:last.t, v:eq};
+      equity[equity.length-1] = {t:last.t, v:+eq.toFixed(2)};
     }
 
     return {trades, equity, logs};
   }
 
-  // --- Strategies
+  // ========= Strategie =========
   function stratEMA(params, candles){
-    const fast=+params.fast, slow=+params.slow;
+    const fast=clamp(+params.fast||21,2,500);
+    const slow=clamp(+params.slow||50,3,1000);
     const efast=EMA(candles, fast, d=>d.c), eslow=EMA(candles, slow, d=>d.c);
     return (i)=>{
       if (i <= 0) return 'HOLD';
@@ -264,30 +287,30 @@
     };
   }
   function stratRSI(params, candles){
-    const len=+params.len, os=+params.os, ob=+params.ob;
+    const len=clamp(+params.len||14,2,100), os=clamp(+params.os||30,1,50), ob=clamp(+params.ob||70,50,99);
     const r = RSI(candles, len, d=>d.c);
     const offset = candles.length - r.length;
     return (i)=>{ const k=i-offset; if(k<=0) return 'HOLD';
       const v=r[k]?.v, pv=r[k-1]?.v; if(v==null||pv==null) return 'HOLD';
-      if(pv<os && v>=os) return 'BUY';
-      if(pv>50 && v<=50) return 'FLAT';
-      if(v>ob) return 'FLAT';
+      if(pv<os && v>=os) return 'BUY';     // wyjście z oversold => wejście LONG
+      if(pv>50 && v<=50) return 'FLAT';    // powrót pod środek => out
+      if(v>ob) return 'FLAT';              // zabezpieczenie w strefie wykupienia
       return 'HOLD';
     };
   }
   function stratBB(params, candles){
-    const len=+params.len, mult=+params.mult;
+    const len=clamp(+params.len||20,5,200), mult=clamp(+params.mult||2,0.5,5);
     const bb = BB(candles, len, mult, d=>d.c);
     const offset = candles.length - bb.length;
     return (i)=>{ const k=i-offset; if(k<1) return 'HOLD';
       const c=candles[i].c, p=candles[i-1].c, b=bb[k], pb=bb[k-1]; if(!b||!pb) return 'HOLD';
-      if(p<=pb.up && c>b.up) return 'BUY';
-      if(c<b.mid) return 'FLAT';
+      if(p<=pb.up && c>b.up) return 'BUY'; // wybicie górą
+      if(c<b.mid) return 'FLAT';           // powrót pod średnią
       return 'HOLD';
     };
   }
 
-  // --- Renderers (SVG)
+  // ========= Rysowanie (SVG) =========
   function renderCandlesSVG(target, candles, trades){
     const W=1000,H=440,N=candles.length, xStep=W/(N-1);
     const min=Math.min(...candles.map(d=>d.l)), max=Math.max(...candles.map(d=>d.h));
@@ -300,6 +323,7 @@
       parts.push(`<line x1="${x}" y1="${yH}" x2="${x}" y2="${yL}" stroke="${col}" stroke-width="1"/>`);
       parts.push(`<rect x="${x0}" y="${yB}" width="${w}" height="${h}" fill="${col}" opacity="0.9"/>`);
     }
+    // Markery transakcji
     for(const t of trades){
       const i = candles.findIndex(c=>c.t===t.time); if(i<0) continue;
       const x=i*xStep, y=Y(t.price), col=(t.type==='BUY'?'var(--up)':'var(--dn)');
@@ -308,7 +332,7 @@
     target.innerHTML = parts.join('');
   }
 
-  function renderLine(target, series, color='#0ea5e9', W=1000, H=440){
+  function renderLine(target, series, color='var(--pri)', W=1000, H=440){
     if(!series.length){ target.innerHTML=''; return }
     const min=Math.min(...series), max=Math.max(...series), pad=(max-min)*0.05||1, yMin=min-pad, yMax=max+pad, xStep=W/(series.length-1), Y=v=> H-((v-yMin)/(yMax-yMin))*H;
     let d=`M 0 ${Y(series[0])}`; for(let i=1;i<series.length;i++){ d+=` L ${i*xStep} ${Y(series[i])}` }
@@ -320,18 +344,19 @@
     const vals=eq.map(e=>e.v); let peak=vals[0]; const dd=vals.map(v=>{ peak=Math.max(peak,v); return (v-peak)/peak*100 });
     const W=1000,H=200,xStep=W/(dd.length-1), min=Math.min(...dd), max=Math.max(...dd), pad=1, yMin=min-pad, yMax=max+pad, Y=v=> H-((v-yMin)/(yMax-yMin))*H;
     let d=`M 0 ${Y(dd[0])}`; for(let i=1;i<dd.length;i++){ d+=` L ${i*xStep} ${Y(dd[i])}` }
-    target.innerHTML = `<rect x="0" y="0" width="${W}" height="${H}" fill="#fff"/><path d="${d}" stroke="#ef4444" stroke-width="2" fill="none"/>`;
+    target.innerHTML = `<rect x="0" y="0" width="${W}" height="${H}" fill="#fff"/><path d="${d}" stroke="var(--dn)" stroke-width="2" fill="none"/>`;
     return Math.min(...dd);
   }
 
-  // --- CSV
+  // ========= CSV =========
   function downloadCSV(trades){
-    const rows=[['time','type','price','pnl','reason']].concat(trades.map(t=>[new Date(t.time).toISOString(), t.type, t.price, t.pnl??'', t.reason??'']));
+    const rows=[['time','type','price','pnl','reason','eqAfter']]
+      .concat(trades.map(t=>[new Date(t.time).toISOString(), t.type, t.price, t.pnl??'', t.reason??'', t.eqAfter??'']));
     const csv=rows.map(r=>r.join(',')).join('\n');
     const a=document.createElement('a'); a.href=URL.createObjectURL(new Blob([csv],{type:'text/csv'})); a.download='backtest_trades.csv'; a.click(); URL.revokeObjectURL(a.href);
   }
 
-  // --- RUN
+  // ========= RUN =========
   function readRisk(){
     return {
       feeBps:+document.getElementById('p_fee').value||0,
@@ -366,9 +391,10 @@
     const {trades, equity, logs} = backtest(kl, signalFn, risk);
 
     // metryki
-    const eqVals=equity.map(e=>e.v), ret=((eqVals.at(-1)-eqVals[0])/eqVals[0]*100)||0;
+    const eqVals=equity.map(e=>e.v);
+    const ret=((eqVals.at(-1)-eqVals[0])/eqVals[0]*100)||0;
     let peak=eqVals[0], maxDD=0; for(const v of eqVals){ peak=Math.max(peak,v); maxDD=Math.min(maxDD,(v-peak)/peak*100) }
-    const prof = trades.filter(t=>t.pnl>0), loss = trades.filter(t=>t.pnl<0);
+    const prof = trades.filter(t=>(t.pnl||0)>0), loss = trades.filter(t=>(t.pnl||0)<0);
     const wins = prof.length, losses=loss.length;
     const pf = (prof.reduce((a,b)=>a+(b.pnl||0),0)||0) / Math.abs(loss.reduce((a,b)=>a+(b.pnl||0),0)||1);
 
@@ -381,7 +407,7 @@
 
     // rysunki
     renderCandlesSVG(svg, kl, trades);
-    renderLine(svgEq, eqVals, '#0ea5e9');
+    renderLine(svgEq, eqVals, 'var(--pri)');
     renderDD(svgDD, equity);
 
     logEl.textContent = logs.join('\n');
