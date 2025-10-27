@@ -4,9 +4,10 @@
 <style>
   :root{--bg:#f6f7fb;--card:#fff;--muted:#6b7280;--grid:#eef0f5;--up:#10b981;--dn:#ef4444;--sma:#0ea5e9;--ema:#a855f7}
   body{margin:0;font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial;background:var(--bg);color:#0f172a}
-  header{display:flex;justify-content:space-between;align-items:center;padding:12px 16px;background:#fff;border-bottom:1px solid #e5e7eb;position:sticky;top:0}
-  .row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+  header{display:flex;justify-content:space-between;align-items:center;padding:12px 16px;background:#fff;border-bottom:1px solid #e5e7eb;position:sticky;top:0;z-index:10}
+  .row{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
   select,input,button{border:1px solid #d1d5db;border-radius:8px;padding:6px 8px;background:#fff}
+  input[type="number"]{width:90px}
   .wrap{max-width:1200px;margin:0 auto;padding:12px}
   .card{background:var(--card);border:1px solid #e5e7eb;border-radius:14px;padding:12px;margin-bottom:12px}
   .muted{color:var(--muted);font-size:12px}
@@ -14,6 +15,8 @@
   .kpi{display:flex;gap:12px;flex-wrap:wrap}
   .kpi .pill{background:#fff;border:1px solid #e5e7eb;border-radius:10px;padding:6px 10px;font-size:12px}
   svg{width:100%}
+  pre{white-space:pre-wrap;word-break:break-word;max-height:280px;overflow:auto;background:#fff;border:1px solid #e5e7eb;border-radius:10px;padding:8px}
+  .group{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
 </style>
 
 <header>
@@ -29,7 +32,7 @@
       <select id="interval"><option>1m</option><option>5m</option><option>15m</option><option>1h</option></select>
     </label>
     <label>Świec
-      <input id="bars" type="number" value="1000" min="100" max="5000" style="width:90px">
+      <input id="bars" type="number" value="1000" min="100" max="5000">
     </label>
     <label>Strategia
       <select id="strategy">
@@ -39,16 +42,27 @@
       </select>
     </label>
     <button id="run">Backtest</button>
-    <button id="csv">Export CSV</button>
+    <button id="csv" title="Export trades as CSV">Export CSV</button>
     <span id="status" class="muted">● idle</span>
   </div>
 </header>
 
 <div class="wrap">
   <div class="card">
-    <div class="row" id="params" style="gap:14px">
-      <!-- dynamic params go here -->
+    <div id="params" class="row" style="gap:14px"></div>
+
+    <div class="row" style="gap:18px;margin-top:6px">
+      <div class="group">
+        <span class="muted">Fee (bps)</span><input id="p_fee" type="number" value="5" min="0" max="100">
+        <span class="muted">Slippage (bps)</span><input id="p_slip" type="number" value="2" min="0" max="100">
+      </div>
+      <div class="group">
+        <label><input id="p_use_sl" type="checkbox" checked> SL%</label><input id="p_sl" type="number" value="1.0" step="0.1" min="0">
+        <label><input id="p_use_tp" type="checkbox" checked> TP%</label><input id="p_tp" type="number" value="1.2" step="0.1" min="0">
+        <label><input id="p_use_tr" type="checkbox"> Trailing%</label><input id="p_tr" type="number" value="0.8" step="0.1" min="0">
+      </div>
     </div>
+
     <div class="kpi" style="margin-top:8px">
       <div class="pill">Transakcji: <b id="k_trades">0</b></div>
       <div class="pill">Win rate: <b id="k_win">0%</b></div>
@@ -67,24 +81,38 @@
 
   <div class="card">
     <div class="muted">Log transakcji</div>
-    <pre id="log" style="white-space:pre-wrap;word-break:break-word;max-height:280px;overflow:auto;background:#fff;border:1px solid #e5e7eb;border-radius:10px;padding:8px"></pre>
+    <pre id="log"></pre>
   </div>
 </div>
 
 <script>
 (function(){
   // --- DOM refs
-  const symSel=document.getElementById('symbol'), intSel=document.getElementById('interval'), barsInp=document.getElementById('bars');
-  const stratSel=document.getElementById('strategy'), runBtn=document.getElementById('run'), csvBtn=document.getElementById('csv'), statusEl=document.getElementById('status'), paramsBox=document.getElementById('params');
-  const svg=document.getElementById('chart'), svgEq=document.getElementById('equity'), svgDD=document.getElementById('drawdown'), logEl=document.getElementById('log');
-  const k_trades=document.getElementById('k_trades'), k_win=document.getElementById('k_win'), k_pf=document.getElementById('k_pf'), k_ret=document.getElementById('k_ret'), k_dd=document.getElementById('k_dd'), k_eq=document.getElementById('k_eq');
+  const symSel=document.getElementById('symbol');
+  const intSel=document.getElementById('interval');
+  const barsInp=document.getElementById('bars');
+  const stratSel=document.getElementById('strategy');
+  const runBtn=document.getElementById('run');
+  const csvBtn=document.getElementById('csv');
+  const statusEl=document.getElementById('status');
+  const paramsBox=document.getElementById('params');
+  const svg=document.getElementById('chart');
+  const svgEq=document.getElementById('equity');
+  const svgDD=document.getElementById('drawdown');
+  const logEl=document.getElementById('log');
+
+  const k_trades=document.getElementById('k_trades');
+  const k_win=document.getElementById('k_win');
+  const k_pf=document.getElementById('k_pf');
+  const k_ret=document.getElementById('k_ret');
+  const k_dd=document.getElementById('k_dd');
+  const k_eq=document.getElementById('k_eq');
 
   // --- Utils
   const sleep=ms=>new Promise(r=>setTimeout(r,ms));
   const mapK=a=>a.map(k=>({t:+k[0], o:+k[1], h:+k[2], l:+k[3], c:+k[4], v:+k[5]}));
 
   async function fetchKlines(symbol, interval, candles){
-    // pobieramy partiami do max 1000, cofając się w czasie
     const out=[]; let end=null;
     while(out.length < candles){
       const need=candles - out.length; const limit=Math.min(1000, need);
@@ -92,11 +120,10 @@
       const json = await fetch(url).then(r=>r.json());
       if(!Array.isArray(json) || !json.length) break;
       const batch = mapK(json);
-      // zabezpieczenie przed pętlą (gdy te same dane wracają)
-      if(out.length && batch.length && batch[batch.length-1].t === (out[0]?.t)) break;
-      out.unshift(...batch); // doklejamy z przodu (idziemy wstecz)
+      if(out.length && batch.length && batch[0].t === out[0]?.t) break;
+      out.unshift(...batch);
       end = batch[0].t - 1;
-      await sleep(80); // limitowanie
+      await sleep(80);
       if(batch.length < limit) break;
     }
     return out.slice(-candles);
@@ -138,34 +165,87 @@
       `;
     } else {
       paramsBox.innerHTML = `
-        <label>Period <input id="p_len" type="number" value="20" min="5" max="200" style="width:80px"></label>
-        <label>Mult <input id="p_mult" type="number" value="2" step="0.1" min="0.5" max="5" style="width:80px"></label>
+        <label>BB period <input id="p_len" type="number" value="20" min="5" max="200" style="width:80px"></label>
+        <label>BB mult <input id="p_mult" type="number" value="2" step="0.1" min="0.5" max="5" style="width:80px"></label>
       `;
     }
   }
   stratSel.onchange=renderParams; renderParams();
 
-  // --- Backtest engine (LONG/FLAT, 1 unit, bez prowizji — na start)
-  function backtest(candles, strategy){
-    const trades=[], equity=[{t:candles[0].t, v:10000}], logs=[];
-    let pos=0, entry=0, eq=10000;
+  // --- Backtest core (LONG/FLAT, 1 unit)
+  function backtest(candles, signalFn, risk){
+    const trades=[], equity=[], logs=[];
+    let pos=0, entry=0, entryBar=-1, highSince=0; // trailing
+    let eq=10000;
 
-    const addEq=(t,v)=>{ equity.push({t, v}) };
-    const log = s => logs.push(s);
+    const feeMult = bps => (bps/10000);
+    const execBuy  = px => px*(1 + risk.slipBps/10000);
+    const execSell = px => px*(1 - risk.slipBps/10000);
 
     for(let i=1;i<candles.length;i++){
-      const c=candles[i].c, t=candles[i].t;
-      const sig=strategy(i, candles); // 'BUY' | 'FLAT' | 'HOLD'
-      if(sig==='BUY' && pos===0){
-        pos=1; entry=c; trades.push({time:t,type:'BUY',price:c}); log(`BUY @ ${c.toFixed(2)} (${new Date(t).toLocaleString()})`);
-      } else if(sig==='FLAT' && pos===1){
-        const pnl = (c-entry)*pos; eq+=pnl; trades.push({time:t,type:'SELL',price:c,pnl}); log(`SELL @ ${c.toFixed(2)} | PnL ${pnl.toFixed(2)}`);
-        pos=0; entry=0; addEq(t, eq);
+      const c=candles[i], prev=candles[i-1];
+      // trailing update (po high)
+      if(pos===1){ highSince = Math.max(highSince, c.h); }
+
+      // Risk exits intrabar (priorytet SL -> Trailing -> TP; uproszczenie kolejności)
+      if(pos===1){
+        const tpPx = risk.useTP ? entry*(1 + risk.tpPct/100) : Infinity;
+        const slPx = risk.useSL ? entry*(1 - risk.slPct/100) : -Infinity;
+        const trPx = risk.useTR ? highSince*(1 - risk.trPct/100) : -Infinity;
+
+        let exitReason=null, exitPx=null;
+        if (risk.useSL && c.l <= slPx){ exitReason='SL'; exitPx=slPx; }
+        else if (risk.useTR && c.l <= trPx){ exitReason='TRAIL'; exitPx=trPx; }
+        else if (risk.useTP && c.h >= tpPx){ exitReason='TP'; exitPx=tpPx; }
+
+        if(exitPx!=null){
+          // SELL
+          const px = execSell(exitPx);
+          const pnl = (px - entry);
+          const fee = (entry * feeMult(risk.feeBps)) + (px * feeMult(risk.feeBps));
+          eq += (pnl - fee);
+          trades.push({time:c.t,type:'SELL',price:px,pnl,reason:exitReason});
+          logs.push(`${exitReason} SELL @ ${px.toFixed(2)} | PnL ${pnl.toFixed(2)} | Fee ${fee.toFixed(2)} | Eq ${eq.toFixed(2)}`);
+          pos=0; entry=0; entryBar=-1; highSince=0;
+        }
       }
+
+      // Sygnał strategii (po ryzyku)
+      const sig = signalFn(i, candles); // BUY | FLAT | HOLD
+      if(sig==='BUY' && pos===0){
+        const raw = c.c; const px = execBuy(raw);
+        const fee = px * feeMult(risk.feeBps);
+        eq -= fee; // opłata wejścia
+        pos=1; entry=px; entryBar=i; highSince=c.h;
+        trades.push({time:c.t,type:'BUY',price:px});
+        logs.push(`BUY @ ${px.toFixed(2)} | Fee ${fee.toFixed(2)} | Eq ${eq.toFixed(2)}`);
+      } else if(sig==='FLAT' && pos===1){
+        const px = execSell(c.c);
+        const pnl = (px - entry);
+        const fee = (px * feeMult(risk.feeBps));
+        eq += (pnl - fee);
+        trades.push({time:c.t,type:'SELL',price:px,pnl,reason:'Signal'});
+        logs.push(`Signal SELL @ ${px.toFixed(2)} | PnL ${pnl.toFixed(2)} | Fee ${fee.toFixed(2)} | Eq ${eq.toFixed(2)}`);
+        pos=0; entry=0; entryBar=-1; highSince=0;
+      }
+
+      // Equity (co bar) = realised eq + uPnL - (brak dodatkowych fee)
+      const upnl = pos ? (c.c - entry) : 0;
+      equity.push({t:c.t, v: eq + upnl});
     }
-    // zamknięcie na końcu
+
+    // Domknięcie EOD jeśli otwarte
     const last=candles[candles.length-1];
-    if(pos===1){ const pnl=(last.c-entry); eq+=pnl; trades.push({time:last.t,type:'SELL',price:last.c,pnl}); addEq(last.t,eq); log(`EOD SELL @ ${last.c.toFixed(2)} | PnL ${pnl.toFixed(2)}`) }
+    if(pos===1){
+      const px = execSell(last.c);
+      const pnl=(px-entry);
+      const fee=(px * (risk.feeBps/10000));
+      eq += (pnl - fee);
+      trades.push({time:last.t,type:'SELL',price:px,pnl,reason:'EOD'});
+      logs.push(`EOD SELL @ ${px.toFixed(2)} | PnL ${pnl.toFixed(2)} | Fee ${fee.toFixed(2)} | Eq ${eq.toFixed(2)}`);
+      equity[equity.length-1] = {t:last.t, v:eq};
+    }
+
     return {trades, equity, logs};
   }
 
@@ -173,18 +253,21 @@
   function stratEMA(params, candles){
     const fast=+params.fast, slow=+params.slow;
     const efast=EMA(candles, fast, d=>d.c), eslow=EMA(candles, slow, d=>d.c);
-    return (i)=>{ const j=i-1; if(i>=Math.min(efast.length, eslow.length)){ const a=efast[i]?.v, b=eslow[i]?.v, ap=efast[j]?.v, bp=eslow[j]?.v;
-      if(a!=null && b!=null && ap!=null && bp!=null){
-        if(a>b && ap<=bp) return 'BUY';
-        if(a<b && ap>=bp) return 'FLAT';
-      } }
+    return (i)=>{
+      if (i <= 0) return 'HOLD';
+      const a = efast[i]?.v, b = eslow[i]?.v;
+      const ap = efast[i-1]?.v, bp = eslow[i-1]?.v;
+      if (a==null || b==null || ap==null || bp==null) return 'HOLD';
+      if (a > b && ap <= bp) return 'BUY';
+      if (a < b && ap >= bp) return 'FLAT';
       return 'HOLD';
     };
   }
   function stratRSI(params, candles){
     const len=+params.len, os=+params.os, ob=+params.ob;
     const r = RSI(candles, len, d=>d.c);
-    return (i)=>{ const k=i-(candles.length-r.length); if(k<=0) return 'HOLD';
+    const offset = candles.length - r.length;
+    return (i)=>{ const k=i-offset; if(k<=0) return 'HOLD';
       const v=r[k]?.v, pv=r[k-1]?.v; if(v==null||pv==null) return 'HOLD';
       if(pv<os && v>=os) return 'BUY';
       if(pv>50 && v<=50) return 'FLAT';
@@ -194,7 +277,7 @@
   }
   function stratBB(params, candles){
     const len=+params.len, mult=+params.mult;
-    const bb = BB(candles, len, mult, d=>d.c); // {t,mid,up,dn} zaczyna się od indexu len-1
+    const bb = BB(candles, len, mult, d=>d.c);
     const offset = candles.length - bb.length;
     return (i)=>{ const k=i-offset; if(k<1) return 'HOLD';
       const c=candles[i].c, p=candles[i-1].c, b=bb[k], pb=bb[k-1]; if(!b||!pb) return 'HOLD';
@@ -217,7 +300,6 @@
       parts.push(`<line x1="${x}" y1="${yH}" x2="${x}" y2="${yL}" stroke="${col}" stroke-width="1"/>`);
       parts.push(`<rect x="${x0}" y="${yB}" width="${w}" height="${h}" fill="${col}" opacity="0.9"/>`);
     }
-    // markery
     for(const t of trades){
       const i = candles.findIndex(c=>c.t===t.time); if(i<0) continue;
       const x=i*xStep, y=Y(t.price), col=(t.type==='BUY'?'var(--up)':'var(--dn)');
@@ -225,48 +307,70 @@
     }
     target.innerHTML = parts.join('');
   }
+
   function renderLine(target, series, color='#0ea5e9', W=1000, H=440){
     if(!series.length){ target.innerHTML=''; return }
-    const xs = series.map((_,i)=>i), min=Math.min(...series), max=Math.max(...series), pad=(max-min)*0.05||1, yMin=min-pad, yMax=max+pad, xStep=W/(series.length-1), Y=v=> H-((v-yMin)/(yMax-yMin))*H;
+    const min=Math.min(...series), max=Math.max(...series), pad=(max-min)*0.05||1, yMin=min-pad, yMax=max+pad, xStep=W/(series.length-1), Y=v=> H-((v-yMin)/(yMax-yMin))*H;
     let d=`M 0 ${Y(series[0])}`; for(let i=1;i<series.length;i++){ d+=` L ${i*xStep} ${Y(series[i])}` }
     target.innerHTML = `<rect x="0" y="0" width="${W}" height="${H}" fill="#fff"/><path d="${d}" stroke="${color}" stroke-width="2" fill="none"/>`;
   }
+
   function renderDD(target, eq){
-    if(eq.length<2){ target.innerHTML=''; return }
+    if(eq.length<2){ target.innerHTML=''; return 0 }
     const vals=eq.map(e=>e.v); let peak=vals[0]; const dd=vals.map(v=>{ peak=Math.max(peak,v); return (v-peak)/peak*100 });
     const W=1000,H=200,xStep=W/(dd.length-1), min=Math.min(...dd), max=Math.max(...dd), pad=1, yMin=min-pad, yMax=max+pad, Y=v=> H-((v-yMin)/(yMax-yMin))*H;
     let d=`M 0 ${Y(dd[0])}`; for(let i=1;i<dd.length;i++){ d+=` L ${i*xStep} ${Y(dd[i])}` }
     target.innerHTML = `<rect x="0" y="0" width="${W}" height="${H}" fill="#fff"/><path d="${d}" stroke="#ef4444" stroke-width="2" fill="none"/>`;
-    const maxDD = Math.min(...dd); return maxDD;
+    return Math.min(...dd);
   }
 
   // --- CSV
   function downloadCSV(trades){
-    const rows=[['time','type','price','pnl']].concat(trades.map(t=>[new Date(t.time).toISOString(), t.type, t.price, t.pnl??'']));
+    const rows=[['time','type','price','pnl','reason']].concat(trades.map(t=>[new Date(t.time).toISOString(), t.type, t.price, t.pnl??'', t.reason??'']));
     const csv=rows.map(r=>r.join(',')).join('\n');
     const a=document.createElement('a'); a.href=URL.createObjectURL(new Blob([csv],{type:'text/csv'})); a.download='backtest_trades.csv'; a.click(); URL.revokeObjectURL(a.href);
   }
 
   // --- RUN
+  function readRisk(){
+    return {
+      feeBps:+document.getElementById('p_fee').value||0,
+      slipBps:+document.getElementById('p_slip').value||0,
+      useSL:document.getElementById('p_use_sl').checked,
+      slPct:+document.getElementById('p_sl').value||0,
+      useTP:document.getElementById('p_use_tp').checked,
+      tpPct:+document.getElementById('p_tp').value||0,
+      useTR:document.getElementById('p_use_tr').checked,
+      trPct:+document.getElementById('p_tr').value||0,
+    };
+  }
+
   async function run(){
     statusEl.textContent='● pobieram…'; statusEl.style.color='#6b7280';
     const symbol=symSel.value, interval=intSel.value, candles=+barsInp.value;
     const kl=await fetchKlines(symbol,interval,candles);
     if(kl.length<50){ statusEl.textContent='● za mało danych'; statusEl.style.color='#ef4444'; return }
 
-    // dobór strategii + params
+    // strategia + params
     let signalFn;
-    if(stratSel.value==='ema') signalFn = stratEMA({fast:+document.getElementById('p_fast').value, slow:+document.getElementById('p_slow').value}, kl);
-    if(stratSel.value==='rsi') signalFn = stratRSI({len:+document.getElementById('p_len').value, os:+document.getElementById('p_os').value, ob:+document.getElementById('p_ob').value}, kl);
-    if(stratSel.value==='bb')  signalFn = stratBB ({len:+document.getElementById('p_len').value, mult:+document.getElementById('p_mult').value}, kl);
+    if(stratSel.value==='ema'){
+      signalFn = stratEMA({fast:+(document.getElementById('p_fast').value||21), slow:+(document.getElementById('p_slow').value||50)}, kl);
+    } else if(stratSel.value==='rsi'){
+      signalFn = stratRSI({len:+(document.getElementById('p_len').value||14), os:+(document.getElementById('p_os').value||30), ob:+(document.getElementById('p_ob').value||70)}, kl);
+    } else {
+      signalFn = stratBB ({len:+(document.getElementById('p_len').value||20), mult:+(document.getElementById('p_mult').value||2)}, kl);
+    }
 
     statusEl.textContent='● testuję…';
-    const {trades, equity, logs} = backtest(kl, signalFn);
+    const risk = readRisk();
+    const {trades, equity, logs} = backtest(kl, signalFn, risk);
 
     // metryki
     const eqVals=equity.map(e=>e.v), ret=((eqVals.at(-1)-eqVals[0])/eqVals[0]*100)||0;
     let peak=eqVals[0], maxDD=0; for(const v of eqVals){ peak=Math.max(peak,v); maxDD=Math.min(maxDD,(v-peak)/peak*100) }
-    const wins = trades.filter(t=>t.pnl>0).length, losses=trades.filter(t=>t.pnl<0).length, pf = (trades.filter(t=>t.pnl>0).reduce((a,b)=>a+b.pnl,0)||0) / Math.abs(trades.filter(t=>t.pnl<0).reduce((a,b)=>a+b.pnl,0)||1);
+    const prof = trades.filter(t=>t.pnl>0), loss = trades.filter(t=>t.pnl<0);
+    const wins = prof.length, losses=loss.length;
+    const pf = (prof.reduce((a,b)=>a+(b.pnl||0),0)||0) / Math.abs(loss.reduce((a,b)=>a+(b.pnl||0),0)||1);
 
     k_trades.textContent=trades.length.toString();
     k_win.textContent=((wins/(wins+losses||1))*100).toFixed(1)+'%';
@@ -283,10 +387,10 @@
     logEl.textContent = logs.join('\n');
     statusEl.textContent='● done'; statusEl.style.color='#16a34a';
 
-    // zapisz ostatni backtest do CSV przycisku
     csvBtn.onclick=()=>downloadCSV(trades);
   }
 
   runBtn.onclick=run;
 })();
 </script>
+</html>
