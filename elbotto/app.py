@@ -36,16 +36,20 @@ class MainWindow(QtWidgets.QMainWindow):
         return {}
 
     def start_backtest(self):
-        csv_path, _ = QtWidgets.QFileDialog.getOpenFileName(self, "Wybierz CSV z danymi (timestamp,open,high,low,close,volume)", filter="CSV (*.csv)")
+        csv_path, _ = QtWidgets.QFileDialog.getOpenFileName(self, "Wybierz CSV...", filter="CSV (*.csv)")
         if not csv_path:
             return
+        preset_path, _ = QtWidgets.QFileDialog.getOpenFileName(self, "Wybierz preset YAML (opcjonalnie)", filter="YAML (*.yaml *.yml)")
         cfg = self.load_cfg()
         cmd = cfg.get('backtest_cmd')
         if not cmd:
             QtWidgets.QMessageBox.information(self, 'Konfiguracja', 'Skonfiguruj backtest_cmd w ~/.elbotto/config.json (np. "python ..\ElBo\scripts\run_backtest.py")')
             return
         self.status.setText('Backtest uruchomiony...')
-        self.proc = subprocess.Popen([cmd, '--csv', csv_path, '--out', 'trades.csv', '--report_dir', 'report'], stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+        args = [cmd, '--csv', csv_path, '--out', 'trades.csv', '--report_dir', 'report']
+        if preset_path:
+            args += ['--preset', preset_path]
+        self.proc = subprocess.Popen(args, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
         self.last_cwd = os.path.dirname(csv_path) or os.getcwd()
 
     def stop(self):
@@ -64,11 +68,7 @@ class MainWindow(QtWidgets.QMainWindow):
             self.proc = None
 
     def open_report(self):
-        # próbuj otworzyć raport z bieżącego folderu pracy
-        paths = [
-            Path(self.last_cwd)/'report'/'report.html',
-            Path(os.getcwd())/'report'/'report.html'
-        ]
+        paths = [Path(self.last_cwd)/'report'/'report.html', Path(os.getcwd())/'report'/'report.html']
         for p in paths:
             if p.exists():
                 QtGui.QDesktopServices.openUrl(QtCore.QUrl.fromLocalFile(str(p)))
