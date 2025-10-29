@@ -1,5 +1,6 @@
-from PySide6 import QtWidgets, QtCore
+from PySide6 import QtWidgets, QtCore, QtGui
 import subprocess, json, os
+from pathlib import Path
 
 CFG_PATH = os.path.expanduser('~/.elbotto/config.json')
 
@@ -14,14 +15,17 @@ class MainWindow(QtWidgets.QMainWindow):
         self.btn_backtest = QtWidgets.QPushButton("Start Backtest")
         self.btn_live = QtWidgets.QPushButton("Start Live")
         self.btn_stop = QtWidgets.QPushButton("Stop")
-        for b in (self.btn_backtest, self.btn_live, self.btn_stop):
+        self.btn_report = QtWidgets.QPushButton("Otwórz raport")
+        for b in (self.btn_backtest, self.btn_live, self.btn_stop, self.btn_report):
             layout.addWidget(b)
         layout.addWidget(self.status)
         self.proc: subprocess.Popen | None = None
         self.btn_backtest.clicked.connect(self.start_backtest)
         self.btn_stop.clicked.connect(self.stop)
+        self.btn_report.clicked.connect(self.open_report)
         self.timer = QtCore.QTimer(self); self.timer.setInterval(500); self.timer.timeout.connect(self.poll)
         self.timer.start()
+        self.last_cwd = os.getcwd()
 
     def load_cfg(self):
         if os.path.exists(CFG_PATH):
@@ -41,7 +45,8 @@ class MainWindow(QtWidgets.QMainWindow):
             QtWidgets.QMessageBox.information(self, 'Konfiguracja', 'Skonfiguruj backtest_cmd w ~/.elbotto/config.json (np. "python ..\ElBo\scripts\run_backtest.py")')
             return
         self.status.setText('Backtest uruchomiony...')
-        self.proc = subprocess.Popen([cmd, '--csv', csv_path, '--out', 'trades.csv'], stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+        self.proc = subprocess.Popen([cmd, '--csv', csv_path, '--out', 'trades.csv', '--report_dir', 'report'], stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+        self.last_cwd = os.path.dirname(csv_path) or os.getcwd()
 
     def stop(self):
         if self.proc and self.proc.poll() is None:
@@ -55,8 +60,20 @@ class MainWindow(QtWidgets.QMainWindow):
             if line:
                 self.status.setText(line.strip())
         if self.proc.poll() is not None:
-            self.status.setText('Zakończono: trades.csv / equity.csv')
+            self.status.setText('Zakończono: trades.csv / equity.csv / report/report.html')
             self.proc = None
+
+    def open_report(self):
+        # próbuj otworzyć raport z bieżącego folderu pracy
+        paths = [
+            Path(self.last_cwd)/'report'/'report.html',
+            Path(os.getcwd())/'report'/'report.html'
+        ]
+        for p in paths:
+            if p.exists():
+                QtGui.QDesktopServices.openUrl(QtCore.QUrl.fromLocalFile(str(p)))
+                return
+        QtWidgets.QMessageBox.information(self, 'Raport', 'Nie znaleziono report/report.html')
 
 if __name__ == "__main__":
     app = QtWidgets.QApplication([])
