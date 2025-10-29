@@ -13,14 +13,16 @@ class MainWindow(QtWidgets.QMainWindow):
         layout = QtWidgets.QVBoxLayout(central)
         self.status = QtWidgets.QLabel("Ready")
         self.btn_backtest = QtWidgets.QPushButton("Start Backtest")
+        self.btn_optimize = QtWidgets.QPushButton("Strojenie (Optuna)")
         self.btn_live = QtWidgets.QPushButton("Start Live")
         self.btn_stop = QtWidgets.QPushButton("Stop")
         self.btn_report = QtWidgets.QPushButton("Otwórz raport")
-        for b in (self.btn_backtest, self.btn_live, self.btn_stop, self.btn_report):
+        for b in (self.btn_backtest, self.btn_optimize, self.btn_live, self.btn_stop, self.btn_report):
             layout.addWidget(b)
         layout.addWidget(self.status)
         self.proc: subprocess.Popen | None = None
         self.btn_backtest.clicked.connect(self.start_backtest)
+        self.btn_optimize.clicked.connect(self.start_optimize)
         self.btn_stop.clicked.connect(self.stop)
         self.btn_report.clicked.connect(self.open_report)
         self.timer = QtCore.QTimer(self); self.timer.setInterval(500); self.timer.timeout.connect(self.poll)
@@ -52,6 +54,21 @@ class MainWindow(QtWidgets.QMainWindow):
         self.proc = subprocess.Popen(args, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
         self.last_cwd = os.path.dirname(csv_path) or os.getcwd()
 
+    def start_optimize(self):
+        csv_path, _ = QtWidgets.QFileDialog.getOpenFileName(self, "CSV do strojenia...", filter="CSV (*.csv)")
+        if not csv_path: return
+        trials, ok = QtWidgets.QInputDialog.getInt(self, 'Optuna', 'Liczba prób', 50, 10, 500, 1)
+        if not ok: return
+        cfg = self.load_cfg()
+        cmd = cfg.get('optimize_cmd')
+        if not cmd:
+            QtWidgets.QMessageBox.information(self, 'Konfiguracja', 'Skonfiguruj optimize_cmd w ~/.elbotto/config.json (np. "python ..\ElBo\scripts\optimize.py")')
+            return
+        self.status.setText('Strojenie (Optuna)...')
+        args = [cmd, '--csv', csv_path, '--trials', str(trials), '--out_dir', 'tuned']
+        self.proc = subprocess.Popen(args, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+        self.last_cwd = os.path.dirname(csv_path) or os.getcwd()
+
     def stop(self):
         if self.proc and self.proc.poll() is None:
             self.proc.terminate()
@@ -64,7 +81,7 @@ class MainWindow(QtWidgets.QMainWindow):
             if line:
                 self.status.setText(line.strip())
         if self.proc.poll() is not None:
-            self.status.setText('Zakończono: trades.csv / equity.csv / report/report.html')
+            self.status.setText('Zakończono. Wyniki w katalogu pracy (report/ lub tuned/).')
             self.proc = None
 
     def open_report(self):
