@@ -23,6 +23,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.proc: subprocess.Popen | None = None
         self.btn_backtest.clicked.connect(self.start_backtest)
         self.btn_optimize.clicked.connect(self.start_optimize)
+        self.btn_live.clicked.connect(self.start_live)
         self.btn_stop.clicked.connect(self.stop)
         self.btn_report.clicked.connect(self.open_report)
         self.timer = QtCore.QTimer(self); self.timer.setInterval(500); self.timer.timeout.connect(self.poll)
@@ -69,6 +70,26 @@ class MainWindow(QtWidgets.QMainWindow):
         self.proc = subprocess.Popen(args, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
         self.last_cwd = os.path.dirname(csv_path) or os.getcwd()
 
+    def start_live(self):
+        cfg = self.load_cfg()
+        cmd = cfg.get('live_cmd')
+        if not cmd:
+            QtWidgets.QMessageBox.information(self, 'Konfiguracja', 'Skonfiguruj live_cmd w ~/.elbotto/config.json (np. "python ..\ElBo\scripts\run_live.py")')
+            return
+        symbol, ok = QtWidgets.QInputDialog.getText(self, 'Live', 'Symbol', text='BTC/USDT')
+        if not ok or not symbol: return
+        timeframe, ok = QtWidgets.QInputDialog.getText(self, 'Live', 'Timeframe', text='1m')
+        if not ok or not timeframe: return
+        preset_path, _ = QtWidgets.QFileDialog.getOpenFileName(self, "Preset YAML (opcjonalnie)", filter="YAML (*.yaml *.yml)")
+        dry = QtWidgets.QMessageBox.question(self, 'Tryb', 'Uruchomić w trybie DRY-RUN? (Nie wysyła zleceń)')
+        dry_run = (dry == QtWidgets.QMessageBox.StandardButton.Yes)
+        self.status.setText('Live start...')
+        args = [cmd, '--symbol', symbol, '--timeframe', timeframe, '--report_dir', 'report_live']
+        if preset_path: args += ['--preset', preset_path]
+        if dry_run: args += ['--dry_run']
+        self.proc = subprocess.Popen(args, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+        self.last_cwd = os.getcwd()
+
     def stop(self):
         if self.proc and self.proc.poll() is None:
             self.proc.terminate()
@@ -81,16 +102,21 @@ class MainWindow(QtWidgets.QMainWindow):
             if line:
                 self.status.setText(line.strip())
         if self.proc.poll() is not None:
-            self.status.setText('Zakończono. Wyniki w katalogu pracy (report/ lub tuned/).')
+            self.status.setText('Zakończono. Wyniki w katalogu pracy (report/ lub tuned/ lub report_live/).')
             self.proc = None
 
     def open_report(self):
-        paths = [Path(self.last_cwd)/'report'/'report.html', Path(os.getcwd())/'report'/'report.html']
+        paths = [
+            Path(self.last_cwd)/'report'/'report.html',
+            Path(self.last_cwd)/'report_live'/'report.html',
+            Path(os.getcwd())/'report'/'report.html',
+            Path(os.getcwd())/'report_live'/'report.html'
+        ]
         for p in paths:
             if p.exists():
                 QtGui.QDesktopServices.openUrl(QtCore.QUrl.fromLocalFile(str(p)))
                 return
-        QtWidgets.QMessageBox.information(self, 'Raport', 'Nie znaleziono report/report.html')
+        QtWidgets.QMessageBox.information(self, 'Raport', 'Nie znaleziono report*/report.html')
 
 if __name__ == "__main__":
     app = QtWidgets.QApplication([])
